@@ -24,6 +24,7 @@ import static com.android.documentsui.DocumentsActivity.State.ACTION_CREATE;
 import static com.android.documentsui.DocumentsActivity.State.ACTION_GET_CONTENT;
 import static com.android.documentsui.DocumentsActivity.State.ACTION_MANAGE;
 import static com.android.documentsui.DocumentsActivity.State.ACTION_OPEN;
+import static com.android.documentsui.DocumentsActivity.State.ACTION_STANDALONE;
 import static com.android.documentsui.DocumentsActivity.State.ACTION_OPEN_TREE;
 import static com.android.documentsui.DocumentsActivity.State.MODE_GRID;
 import static com.android.documentsui.DocumentsActivity.State.MODE_LIST;
@@ -31,6 +32,7 @@ import static com.android.documentsui.DocumentsActivity.State.MODE_LIST;
 import android.app.Activity;
 import android.app.Fragment;
 import android.app.FragmentManager;
+import android.app.ProgressDialog;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ComponentName;
@@ -87,9 +89,15 @@ import com.google.common.collect.Maps;
 
 import libcore.io.IoUtils;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -129,11 +137,6 @@ public class DocumentsActivity extends Activity {
     private List<DocumentInfo> mClipboardFiles;
     /* true if copy, false if cut */
     private boolean mClipboardIsCopy;
-
-    private StorageManager mStorageManager;
-
-    private final Object mRootsLock = new Object();
-    private HashMap<String, File> mIdToPath;
 
     @Override
     public void onCreate(Bundle icicle) {
@@ -222,14 +225,18 @@ public class DocumentsActivity extends Activity {
             moreApps.setPackage(null);
             RootsFragment.show(getFragmentManager(), moreApps);
         } else if (mState.action == ACTION_OPEN || mState.action == ACTION_CREATE
-                || mState.action == ACTION_OPEN_TREE) {
+                || mState.action == ACTION_OPEN_TREE || mState.action == ACTION_STANDALONE) {
             RootsFragment.show(getFragmentManager(), null);
         }
 
         if (!mState.restored) {
             if (mState.action == ACTION_MANAGE) {
                 final Uri rootUri = getIntent().getData();
-                new RestoreRootTask(rootUri).executeOnExecutor(getCurrentExecutor());
+                if (rootUri != null) {
+                    new RestoreRootTask(rootUri).executeOnExecutor(getCurrentExecutor());
+                } else {
+                    new RestoreStackTask().execute();
+                }
             } else {
                 new RestoreStackTask().execute();
             }
@@ -288,6 +295,8 @@ public class DocumentsActivity extends Activity {
             mState.action = ACTION_OPEN_TREE;
         } else if (DocumentsContract.ACTION_MANAGE_ROOT.equals(action)) {
             mState.action = ACTION_MANAGE;
+        } else if (Intent.ACTION_MAIN.equals(action)) {
+            mState.action = ACTION_STANDALONE;
         }
 
         if (mState.action == ACTION_OPEN || mState.action == ACTION_GET_CONTENT) {
@@ -296,6 +305,7 @@ public class DocumentsActivity extends Activity {
             } else if (mState.action == ACTION_STANDALONE) {
                 mState.allowMultiple = true;
             }
+        }
 
         if (mState.action == ACTION_MANAGE) {
             mState.acceptMimes = new String[] { "*/*" };
@@ -470,7 +480,7 @@ public class DocumentsActivity extends Activity {
             } else if (mState.action == ACTION_CREATE) {
                 mRootsToolbar.setTitle(R.string.title_save);
             } else if (mState.action == ACTION_STANDALONE) {
-                mRootsToolbar.setTitle(R.string.title_standalone);
+                actionBar.setTitle(R.string.title_standalone);
             }
         }
 
@@ -606,6 +616,12 @@ public class DocumentsActivity extends Activity {
         final MenuItem list = menu.findItem(R.id.menu_list);
         final MenuItem advanced = menu.findItem(R.id.menu_advanced);
         final MenuItem fileSize = menu.findItem(R.id.menu_file_size);
+        final MenuItem paste = menu.findItem(R.id.menu_paste);
+
+        // Paste is visible only if we have files in the clipboard, and if
+        // we can paste in this directory
+        paste.setVisible(mClipboardFiles != null && mClipboardFiles.size() > 0
+        && cwd != null && cwd.isCreateSupported());
 
         sort.setVisible(cwd != null);
         grid.setVisible(mState.derivedMode != MODE_GRID);
@@ -634,7 +650,7 @@ public class DocumentsActivity extends Activity {
 
         boolean searchVisible;
         boolean fileSizeVisible = mState.action != ACTION_MANAGE;
-        if (mState.action == ACTION_CREATE || mState.action == ACTION_OPEN_TREE) {
+        if (mState.action == ACTION_CREATE || mState.action == ACTION_OPEN_TREE || mState.action == ACTION_STANDALONE) {
             createDir.setVisible(cwd != null && cwd.isCreateSupported());
             searchVisible = false;
 
@@ -681,6 +697,9 @@ public class DocumentsActivity extends Activity {
             return true;
         } else if (id == R.id.menu_create_dir) {
             CreateDirectoryFragment.show(getFragmentManager());
+            return true;
+        } else if (id == R.id.menu_paste) {
+            onPasteRequested();
             return true;
         } else if (id == R.id.menu_search) {
             return false;
@@ -926,7 +945,7 @@ public class DocumentsActivity extends Activity {
         }
 
         // Forget any replacement target
-        if (mState.action == ACTION_CREATE) {
+        if (mState.action == ACTION_CREATE || mState.action == ACTION_STANDALONE) {
             final SaveFragment save = SaveFragment.get(fm);
             if (save != null) {
                 save.setReplaceTarget(null);
@@ -1082,28 +1101,7 @@ public class DocumentsActivity extends Activity {
             try {
                 startActivity(view);
             } catch (ActivityNotFoundException ex2) {
-                File file = null;
-                int idx = doc.documentId.indexOf(":");
-                if (idx != -1){
-                    String id = doc.documentId.substring(0, idx);
-                    File volume = mIdToPath.get(id);
-                    if (volume != null) {
-                        String fileName = doc.documentId.substring(doc.documentId.indexOf(":") + 1);
-                        file = new File(volume, fileName);
-                    }
-                    if (file != null) {
-                        view.setDataAndType(Uri.fromFile(file), doc.mimeType);
-                        try {
-                            startActivity(view);
-                        } catch (ActivityNotFoundException ex3) {
-                            Toast.makeText(this, R.string.toast_no_application, Toast.LENGTH_SHORT).show();
-                        }
-                    } else {
-                        Toast.makeText(this, R.string.toast_no_application, Toast.LENGTH_SHORT).show();
-                    }
-                } else {
-                    Toast.makeText(this, R.string.toast_no_application, Toast.LENGTH_SHORT).show();
-                }
+                Toast.makeText(this, R.string.toast_no_application, Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -1117,6 +1115,30 @@ public class DocumentsActivity extends Activity {
             }
             new ExistingFinishTask(uris).executeOnExecutor(getCurrentExecutor());
         }
+    }
+
+    public void setClipboardDocuments(List<DocumentInfo> docs, boolean copy) {
+        mClipboardFiles = docs;
+        mClipboardIsCopy = copy;
+        final Resources r = getResources();
+        Toast.makeText(this,
+        r.getQuantityString(R.plurals.files_copied, docs.size(), docs.size()),
+        Toast.LENGTH_SHORT).show();
+
+        // Update the action bar buttons
+        invalidateOptionsMenu();
+    }
+
+    public void onPasteRequested() {
+        if (mClipboardFiles == null) {
+            return;
+        }
+
+        // Run the corresponding asynctask
+        new CopyOrCutFilesTask(mClipboardFiles.toArray(new DocumentInfo[0])).executeOnExecutor(getCurrentExecutor());
+
+        // Clear the copy buffer
+        mClipboardFiles = null;
     }
 
     public void onSaveRequested(DocumentInfo replaceTarget) {
@@ -1184,6 +1206,17 @@ public class DocumentsActivity extends Activity {
 
         setResult(Activity.RESULT_OK, intent);
         finish();
+    }
+
+    public void copyFile(Uri input, Uri output) throws IOException {
+        OutputStream os = getContentResolver().openOutputStream(output);
+        InputStream is = getContentResolver().openInputStream(input);
+
+        byte[] buffer = new byte[1024];
+        int len;
+        while ((len = is.read(buffer)) != -1) {
+            os.write(buffer, 0, len);
+        }
     }
 
     private class CreateFinishTask extends AsyncTask<Void, Void, Uri> {
@@ -1292,11 +1325,7 @@ public class DocumentsActivity extends Activity {
 
                     count++;
                     publishProgress((Integer) count);
-                } catch (RemoteException e) {
-                    Log.w(TAG, "Failed to copy " + doc, e);
-                } catch (FileNotFoundException e) {
-                    Log.w(TAG, "Failed to copy " + doc, e);
-                }catch (IOException e) {
+                } catch (Exception e) {
                     Log.w(TAG, "Failed to copy " + doc, e);
                 }
             }
@@ -1399,6 +1428,7 @@ public class DocumentsActivity extends Activity {
         public static final int ACTION_GET_CONTENT = 3;
         public static final int ACTION_OPEN_TREE = 4;
         public static final int ACTION_MANAGE = 5;
+        public static final int ACTION_STANDALONE = 6;
 
         public static final int MODE_UNKNOWN = 0;
         public static final int MODE_LIST = 1;
