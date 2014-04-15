@@ -51,7 +51,6 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Parcel;
 import android.os.Parcelable;
-import android.os.RemoteException;
 import android.os.storage.StorageManager;
 import android.os.storage.StorageVolume;
 import android.provider.DocumentsContract;
@@ -137,6 +136,11 @@ public class DocumentsActivity extends Activity {
     private List<DocumentInfo> mClipboardFiles;
     /* true if copy, false if cut */
     private boolean mClipboardIsCopy;
+
+    private StorageManager mStorageManager;
+
+    private final Object mRootsLock = new Object();
+    private HashMap<String, File> mIdToPath;
 
     @Override
     public void onCreate(Bundle icicle) {
@@ -1101,7 +1105,23 @@ public class DocumentsActivity extends Activity {
             try {
                 startActivity(view);
             } catch (ActivityNotFoundException ex2) {
-                Toast.makeText(this, R.string.toast_no_application, Toast.LENGTH_SHORT).show();
+                File file = null;
+                String id = doc.documentId.substring(0, doc.documentId.indexOf(":"));
+                File volume = mIdToPath.get(id);
+                if (volume != null) {
+                    String fileName = doc.documentId.substring(doc.documentId.indexOf(":") + 1);
+                    file = new File(volume, fileName);
+                }
+                if (file != null) {
+                    view.setDataAndType(Uri.fromFile(file), doc.mimeType);
+                    try {
+                        startActivity(view);
+                    } catch (ActivityNotFoundException ex3) {
+                        Toast.makeText(this, R.string.toast_no_application, Toast.LENGTH_SHORT).show();
+                    }
+                } else {
+                    Toast.makeText(this, R.string.toast_no_application, Toast.LENGTH_SHORT).show();
+                }
             }
         }
     }
