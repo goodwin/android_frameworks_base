@@ -690,10 +690,9 @@ public class DirectoryFragment extends Fragment {
                     final RootInfo root = getArguments().getParcelable(EXTRA_ROOT);
 
                     // We get the contents of the directory
-                    DirectoryLoader loader = new DirectoryLoader(
-                            context, mType, root, doc, contentsUri, SORT_ORDER_UNKNOWN);
+                    mLoader.init(mType, root, doc, contentsUri, SORT_ORDER_UNKNOWN);
 
-                    DirectoryResult result = loader.loadInBackground();
+                    DirectoryResult result = mLoader.loadInBackground();
                     Cursor cursor = result.cursor;
 
                     // Build a list of the docs to delete, and delete them
