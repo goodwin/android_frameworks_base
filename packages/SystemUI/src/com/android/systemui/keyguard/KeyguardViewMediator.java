@@ -910,13 +910,12 @@ public class KeyguardViewMediator extends SystemUI {
             if (DEBUG) Log.d(TAG, "isKeyguardDisabled: keyguard is disabled by setting");
             return true;
         }
-        if (mInternallyDisabled) {
-            if (DEBUG) Log.d(TAG, "isKeyguardDisabled: keyguard is disabled internally");
-            return true;
-        }
-        if (isProfileDisablingKeyguard()) {
-            if (DEBUG) Log.d(TAG, "isKeyguardDisabled: keyguard is disabled by profile");
-            return true;
+        Profile profile = mProfileManager.getActiveProfile();
+        if (profile != null) {
+            if (profile.getScreenLockMode().getValue() == Profile.LockMode.DISABLE) {
+                if (DEBUG) Log.d(TAG, "isKeyguardDisabled: keyguard is disabled by profile");
+                return true;
+            }
         }
         return false;
     }
@@ -1222,7 +1221,7 @@ public class KeyguardViewMediator extends SystemUI {
                 && !lockedOrMissing) {
             if (DEBUG) Log.d(TAG, "doKeyguard: not showing because lockscreen is off");
             // update state
-            setShowingLocked(false);
+            mShowing = false;
             updateActivityLockScreenState();
             adjustStatusBarLocked();
             userActivity();
