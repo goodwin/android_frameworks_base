@@ -57,6 +57,7 @@ import com.android.systemui.qs.tiles.LteTile;
 import com.android.systemui.qs.tiles.NotificationsTile;
 import com.android.systemui.qs.tiles.ProfilesTile;
 import com.android.systemui.qs.tiles.PerfProfileTile;
+import com.android.systemui.qs.tiles.RebootTile;
 import com.android.systemui.qs.tiles.RoamingTile;
 import com.android.systemui.qs.tiles.RotationLockTile;
 import com.android.systemui.qs.tiles.SyncTile;
@@ -381,6 +382,8 @@ public class QSTileHost implements QSTile.Host {
                 return new AmbientDisplayTile(this);
             case QSConstants.TILE_SYNC:
                 return new SyncTile(this);
+            case QSConstants.TILE_REBOOT:
+                return new RebootTile(this);
             default:
                 throw new IllegalArgumentException("Bad tile spec: " + tileSpec);
         }
