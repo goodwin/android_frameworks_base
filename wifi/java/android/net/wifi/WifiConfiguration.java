@@ -1492,7 +1492,7 @@ public class WifiConfiguration implements Parcelable {
                    result.capabilities.contains("IEEE8021X")) {
             key = key + "-" + KeyMgmt.strings[KeyMgmt.WPA_EAP];
         } else {
-            key = key + "-" + KeyMgmt.strings[KeyMgmt.NONE];
+            key = key +"-" + KeyMgmt.strings[KeyMgmt.NONE];
         }
 
         return key;
