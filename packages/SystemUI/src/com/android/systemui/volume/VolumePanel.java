@@ -707,18 +707,19 @@ public class VolumePanel extends Handler implements DemoMode {
             sc.iconMuteRes = streamRes.iconMuteRes;
             sc.icon.setImageResource(sc.iconRes);
             sc.icon.setClickable(isNotification && mHasVibrator);
-            if (isNotification) {
-                if (mHasVibrator) {
-                    sc.icon.setSoundEffectsEnabled(false);
-                    sc.iconMuteRes = com.android.systemui.R.drawable.ic_ringer_vibrate;
-                    sc.icon.setOnClickListener(new OnClickListener() {
-                        @Override
-                        public void onClick(View v) {
-                            resetTimeout();
-                            toggleRinger(sc);
+            sc.icon.setClickable(enableClick);
+            if (enableClick) {
+                sc.icon.setSoundEffectsEnabled(false);
+                sc.icon.setOnClickListener(new OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        resetVolPanelTimeout();
+                        toggleRinger(sc);
+                        if (!mVolumeLinkNotification) {
+                            updateStates();
                         }
-                    });
-                }
+                    }
+                });
                 sc.iconSuppressedRes = com.android.systemui.R.drawable.ic_ringer_mute;
             }
             sc.seekbarView = (SeekBar) sc.group.findViewById(com.android.systemui.R.id.seekbar);
