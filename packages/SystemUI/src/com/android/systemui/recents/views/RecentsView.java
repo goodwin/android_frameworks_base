@@ -257,8 +257,8 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
     }
 
     public void startHideClearRecentsButtonAnimation() {
-        if (mFloatingButton != null) {
-            mFloatingButton.animate()
+        if (mClearRecents != null) {
+            mClearRecents.animate()
                 .alpha(0f)
                 .setStartDelay(0)
                 .setUpdateListener(null)
@@ -267,8 +267,8 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
                 .withEndAction(new Runnable() {
                     @Override
                     public void run() {
-                        mFloatingButton.setVisibility(View.GONE);
-                        mFloatingButton.setAlpha(1f);
+                        mClearRecents.setVisibility(View.GONE);
+                        mClearRecents.setAlpha(1f);
                     }
                 })
                 .start();
@@ -381,9 +381,8 @@ public class RecentsView extends FrameLayout implements TaskStackView.TaskStackV
                     return;
                 }
 
-                if (dismissAll()) {
-                    startHideClearRecentsButtonAnimation();
-                }
+                // Hide clear recents button before dismiss all tasks
+                startHideClearRecentsButtonAnimation();
 
                 dismissAllTasksAnimated();
             }
