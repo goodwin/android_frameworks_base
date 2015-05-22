@@ -1048,10 +1048,14 @@ public class ViewDebug {
             return methods;
         }
 
-        methods = klass.getDeclaredMethodsUnchecked(false);
+        final ArrayList<Method> declaredMethods = new ArrayList();
+        klass.getDeclaredMethodsUnchecked(false, declaredMethods);
 
         final ArrayList<Method> foundMethods = new ArrayList<Method>();
-        for (final Method method : methods) {
+        final int count = declaredMethods.size();
+        for (int i = 0; i < count; i++) {
+            final Method method = declaredMethods.get(i);
+
             // Ensure the method return and parameter types can be resolved.
             try {
                 method.getReturnType();
