@@ -516,8 +516,7 @@ public class KeyguardViewMediator extends SystemUI {
                     break;
                 case READY:
                     synchronized (this) {
-                        if ((mInternallyDisabled || isProfileDisablingKeyguard())
-                                && !mUpdateMonitor.isSimPinSecure()) {
+                        if (mInternallyDisabled) {
                             hideLocked();
                         } else if (mShowing) {
                             resetStateLocked();
@@ -908,6 +907,10 @@ public class KeyguardViewMediator extends SystemUI {
         }
         if (mLockPatternUtils.isLockScreenDisabled(userId)) {
             if (DEBUG) Log.d(TAG, "isKeyguardDisabled: keyguard is disabled by setting");
+            return true;
+        }
+        if (mInternallyDisabled) {
+            if (DEBUG) Log.d(TAG, "isKeyguardDisabled: keyguard is disabled internally");
             return true;
         }
         Profile profile = mProfileManager.getActiveProfile();
