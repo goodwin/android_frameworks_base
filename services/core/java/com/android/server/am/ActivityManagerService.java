@@ -1305,6 +1305,8 @@ public final class ActivityManagerService extends ActivityManagerNative
 
     static KillProcessBackground mKillProcessHandler;
 
+    static KillProcessBackground mKillProcessHandler;
+
     final class UiHandler extends Handler {
         public UiHandler() {
             super(com.android.server.UiThread.get().getLooper(), null, true);
@@ -2214,6 +2216,8 @@ public final class ActivityManagerService extends ActivityManagerNative
         HandlerThread cpuTrackerThread = new HandlerThread("CpuTracker");
         cpuTrackerThread.start();
         mCpuTrackerHandler = new CpuTrackerHandler(cpuTrackerThread.getLooper());
+
+        mKillProcessHandler = new KillProcessBackground(BackgroundThread.getHandler().getLooper());
 
         mKillProcessHandler = new KillProcessBackground(BackgroundThread.getHandler().getLooper());
 
