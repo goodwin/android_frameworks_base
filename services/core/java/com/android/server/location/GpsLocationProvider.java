@@ -755,6 +755,10 @@ public class GpsLocationProvider implements LocationProviderInterface {
         mBatteryStats = IBatteryStats.Stub.asInterface(ServiceManager.getService(
                 BatteryStats.SERVICE_NAME));
 
+        // Check if we have a legacy GPS HAL
+        mLegacyGpsHAL = mContext.getResources().getBoolean(
+                com.android.internal.R.bool.config_legacyGpsHAL);
+
         mLastKnownMccMnc = getKnownMccMnc(mContext);
 
         // Load GPS configuration.
