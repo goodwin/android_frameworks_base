@@ -616,7 +616,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
     private int mMinimumVelocity;
     private int mMaximumVelocity;
     private int mDecacheThreshold;
-    private float mVelocityScale = 1.0f;
+    private float mVelocityScale = 1.00f;
 
     final boolean[] mIsScrap = new boolean[1];
 
@@ -864,7 +864,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
         mTouchSlop = configuration.getScaledTouchSlop();
         mMinimumVelocity = configuration.getScaledMinimumFlingVelocity();
         mMaximumVelocity = configuration.getScaledMaximumFlingVelocity();
-        mDecacheThreshold = mMaximumVelocity / 2;
+        mDecacheThreshold = mMaximumVelocity * 3 / 2;
         mOverscrollDistance = configuration.getScaledOverscrollDistance();
         mOverflingDistance = configuration.getScaledOverflingDistance();
 
