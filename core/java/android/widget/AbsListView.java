@@ -616,7 +616,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
     private int mMinimumVelocity;
     private int mMaximumVelocity;
     private int mDecacheThreshold;
-    private float mVelocityScale = 1.00f;
+    private float mVelocityScale = 0.92f;
 
     final boolean[] mIsScrap = new boolean[1];
 
