@@ -615,7 +615,7 @@ public abstract class AbsListView extends AdapterView<ListAdapter> implements Te
     Runnable mPositionScrollAfterLayout;
     private int mMinimumVelocity;
     private int mMaximumVelocity;
-    private float mVelocityScale = 1.0f;
+    private float mVelocityScale = 0.92f;
 
     final boolean[] mIsScrap = new boolean[1];
 
