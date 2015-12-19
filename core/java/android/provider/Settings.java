@@ -3472,7 +3472,7 @@ public final class Settings {
          * @hide
          */
         public static final String DISABLE_FC_NOTIFICATIONS = "disable_fc_notifications";
-         * Volume key controls ringtone or media sound stream
+        /** Volume key controls ringtone or media sound stream
          * @hide
          */
         public static final String VOLUME_KEYS_CONTROL_RING_STREAM =
