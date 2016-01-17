@@ -22,7 +22,6 @@ import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.PointF;
-import android.os.PowerManager;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.Pair;
@@ -209,9 +208,6 @@ public class NotificationStackScrollLayout extends ViewGroup
     private boolean mDelegateToScrollView;
     private boolean mDisallowScrollingInThisMotion;
     private long mGoToFullShadeDelay;
-
-    private final PowerManager mPm;
-
     private ViewTreeObserver.OnPreDrawListener mChildrenUpdater
             = new ViewTreeObserver.OnPreDrawListener() {
         @Override
@@ -257,8 +253,6 @@ public class NotificationStackScrollLayout extends ViewGroup
                 minHeight, maxHeight);
         mExpandHelper.setEventSource(this);
         mExpandHelper.setScrollAdapter(this);
-
-        mPm = (PowerManager)context.getSystemService(Context.POWER_SERVICE);
 
         mSwipeHelper = new SwipeHelper(SwipeHelper.X, this, getContext());
         mSwipeHelper.setLongPressListener(mLongPressListener);
@@ -845,11 +839,6 @@ public class NotificationStackScrollLayout extends ViewGroup
                 && !mOnlyScrollingInThisMotion) {
             horizontalSwipeWantsIt = mSwipeHelper.onTouchEvent(ev);
         }
-
-        if (expandWantsIt && mIsBeingDragged) {
-            mPm.cpuBoost(200 * 1000);
-        }
-
         return horizontalSwipeWantsIt || scrollerWantsIt || expandWantsIt || super.onTouchEvent(ev);
     }
 

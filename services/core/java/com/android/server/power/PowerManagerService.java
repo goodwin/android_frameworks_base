@@ -172,9 +172,6 @@ public final class PowerManagerService extends SystemService
 
     private static final float PROXIMITY_NEAR_THRESHOLD = 5.0f;
 
-    // Max time (microseconds) to allow a CPU boost for
-    private static final int MAX_CPU_BOOST_TIME = 5000000;
-
     private final Context mContext;
     private final ServiceThread mHandlerThread;
     private final PowerManagerHandler mHandler;
@@ -501,9 +498,6 @@ public final class PowerManagerService extends SystemService
     private static native void nativeSetAutoSuspend(boolean enable);
     private static native void nativeSendPowerHint(int hintId, int data);
     private static native void nativeSetFeature(int featureId, int data);
-    private static native void nativeCpuBoost(int duration);
-    private static native void nativeLaunchBoost();
-    static native void nativeSetPowerProfile(int profile);
     private boolean mKeyboardVisible = false;
 
     private SensorManager mSensorManager;
@@ -514,8 +508,6 @@ public final class PowerManagerService extends SystemService
     android.os.PowerManager.WakeLock mProximityWakeLock;
     SensorEventListener mProximityListener;
 
-    private PerformanceManager mPerformanceManager;
-
     public PowerManagerService(Context context) {
         super(context);
         mContext = context;
@@ -523,7 +515,6 @@ public final class PowerManagerService extends SystemService
                 Process.THREAD_PRIORITY_DISPLAY, false /*allowIo*/);
         mHandlerThread.start();
         mHandler = new PowerManagerHandler(mHandlerThread.getLooper());
-        mPerformanceManager = new PerformanceManager(context);
 
         synchronized (mLock) {
             mWakeLockSuspendBlocker = createSuspendBlockerLocked("PowerManagerService.WakeLocks");
@@ -688,8 +679,6 @@ public final class PowerManagerService extends SystemService
                     CMSettings.Global.WAKE_WHEN_PLUGGED_OR_UNPLUGGED),
                     false, mSettingsObserver, UserHandle.USER_ALL);
 
-            mPerformanceManager.reset();
-
             // Go.
             readConfigurationLocked();
             updateSettingsLocked();
@@ -845,8 +834,6 @@ public final class PowerManagerService extends SystemService
             // Turn setting off if powered
             Settings.Global.putInt(mContext.getContentResolver(),
                     Settings.Global.LOW_POWER_MODE, 0);
-            // update performance profile
-            mPerformanceManager.setPowerProfile(PowerManager.PROFILE_BALANCED);
             mLowPowerModeSetting = false;
         }
         final boolean autoLowPowerModeEnabled = !mIsPowered && mAutoLowPowerModeConfigured
@@ -3525,32 +3512,10 @@ public final class PowerManagerService extends SystemService
                     android.Manifest.permission.DEVICE_POWER, null);
             final long ident = Binder.clearCallingIdentity();
             try {
-                boolean changed = setLowPowerModeInternal(mode);
-                if (changed) {
-                    mPerformanceManager.setPowerProfile(mLowPowerModeEnabled ?
-                            PowerManager.PROFILE_POWER_SAVE : PowerManager.PROFILE_BALANCED);
-                }
-                return changed;
+                return setLowPowerModeInternal(mode);
             } finally {
                 Binder.restoreCallingIdentity(ident);
             }
-        }
-
-        @Override // Binder call
-        public boolean setPowerProfile(String profile) {
-            mContext.enforceCallingOrSelfPermission(android.Manifest.permission.DEVICE_POWER, null);
-            final long ident = Binder.clearCallingIdentity();
-            try {
-                setLowPowerModeInternal(PowerManager.PROFILE_POWER_SAVE.equals(profile));
-            } finally {
-                Binder.restoreCallingIdentity(ident);
-            }
-            return mPerformanceManager.setPowerProfile(profile);
-        }
-
-        @Override
-        public String getPowerProfile() {
-            return mPerformanceManager.getPowerProfile();
         }
 
         @Override // Binder call
@@ -3561,42 +3526,6 @@ public final class PowerManagerService extends SystemService
             } finally {
                 Binder.restoreCallingIdentity(ident);
             }
-        }
-
-        /**
-         * Boost the CPU
-         * @param duration Duration to boost the CPU for, in milliseconds.
-         * @hide
-         */
-        @Override
-        public void cpuBoost(int duration) {
-            if (duration > 0 && duration <= MAX_CPU_BOOST_TIME) {
-                // Don't send boosts if we're in another power profile
-                String profile = mPerformanceManager.getPowerProfile();
-                if (profile == null || profile.equals(PowerManager.PROFILE_BALANCED)) {
-                    nativeCpuBoost(duration);
-                }
-            } else {
-                Slog.e(TAG, "Invalid boost duration: " + duration);
-            }
-        }
-
-        /**
-         * Boost the CPU for an app launch
-         * @hide
-         */
-        @Override
-        public void launchBoost() {
-            // Don't send boosts if we're in another power profile
-            String profile = mPerformanceManager.getPowerProfile();
-            if (profile == null || profile.equals(PowerManager.PROFILE_BALANCED)) {
-                nativeLaunchBoost();
-            }
-        }
-
-        @Override
-        public void activityResumed(String componentName) {
-            mPerformanceManager.activityResumed(componentName);
         }
 
         /**

@@ -158,11 +158,6 @@ public class BridgePowerManager implements IPowerManager {
 
     @Override
     public void setKeyboardVisibility(boolean visible) {
-        // pass for now.
-    }
-
-    @Override
-    public void cpuBoost(int duration) throws RemoteException {
         // pass for now
     }
 

@@ -273,8 +273,6 @@ public final class ActivityStackSupervisor implements DisplayListener {
      * setWindowManager is called. **/
     private boolean mLeanbackOnlyDevice;
 
-    PowerManager mPm;
-
     /**
      * Is the privacy guard currently enabled? Shared between ActivityStacks
      */
@@ -356,9 +354,9 @@ public final class ActivityStackSupervisor implements DisplayListener {
      * initialized.  So we initialize our wakelocks afterwards.
      */
     void initPowerManagement() {
-        mPm = (PowerManager)mService.mContext.getSystemService(Context.POWER_SERVICE);
-        mGoingToSleep = mPm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ActivityManager-Sleep");
-        mLaunchingActivity = mPm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "*launch*");
+        PowerManager pm = (PowerManager)mService.mContext.getSystemService(Context.POWER_SERVICE);
+        mGoingToSleep = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ActivityManager-Sleep");
+        mLaunchingActivity = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "*launch*");
         mLaunchingActivity.setReferenceCounted(false);
     }
 
@@ -1437,8 +1435,6 @@ public final class ActivityStackSupervisor implements DisplayListener {
                             Display.DEFAULT_DISPLAY : mFocusedStack.mDisplayId) :
                             (container.mActivityDisplay == null ? Display.DEFAULT_DISPLAY :
                                     container.mActivityDisplay.mDisplayId)));
-            /* Acquire perf lock during new app launch */
-            mPm.launchBoost();
         }
 
         ActivityRecord sourceRecord = null;
@@ -2788,12 +2784,6 @@ public final class ActivityStackSupervisor implements DisplayListener {
     }
 
     void findTaskToMoveToFrontLocked(TaskRecord task, int flags, Bundle options, String reason) {
-        ActivityRecord top = task.stack.topRunningActivityLocked(null);
-        /* App is launching from recent apps and it's a new process */
-        if(top != null && top.state == ActivityState.DESTROYED) {
-            mPm.launchBoost();
-        }
-
         if ((flags & ActivityManager.MOVE_TASK_NO_USER_ACTION) == 0) {
             mUserLeaving = true;
         }
@@ -3075,16 +3065,11 @@ public final class ActivityStackSupervisor implements DisplayListener {
                 }
                 final ActivityRecord ar = stack.findTaskLocked(r);
                 if (ar != null) {
-                    if (ar.state == ActivityState.DESTROYED) {
-                        mPm.launchBoost();
-                    }
                     return ar;
                 }
             }
         }
         if (DEBUG_TASKS) Slog.d(TAG_TASKS, "No task found");
-        mPm.launchBoost();
-
         return null;
     }
 

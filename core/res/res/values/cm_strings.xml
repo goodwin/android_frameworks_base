@@ -241,11 +241,4 @@
     <string name="tethered_notification_one_device_message"><xliff:g id="count">%1$s</xliff:g> connected device</string>
     <string name="tethered_notification_multi_device_message"><xliff:g id="count">%1$s</xliff:g> connected devices</string>
 
-    <!-- Performance profile modes -->
-    <string name="perf_profile_pwrsv">Power save</string>
-    <string name="perf_profile_bal">Balanced</string>
-    <string name="perf_profile_perf">Performance</string>
-    <string name="perf_profile_bias_power">Efficiency</string>
-    <string name="perf_profile_bias_perf">Quick</string>
-
 </resources>
