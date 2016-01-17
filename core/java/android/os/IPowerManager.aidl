@@ -67,7 +67,13 @@ interface IPowerManager
 
     void setKeyboardLight(boolean on, int key);
 
-    oneway void cpuBoost(int duration);
+	void wakeUpWithProximityCheck(long time, String reason, String opPackageName);
 
-    void wakeUpWithProximityCheck(long time, String reason, String opPackageName);
+    void cpuBoost(int duration);
+    void launchBoost();
+
+    boolean setPowerProfile(String profile);
+    String getPowerProfile();
+
+    void activityResumed(String componentName);
 }

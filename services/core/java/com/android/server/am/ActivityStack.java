@@ -68,9 +68,6 @@ import android.util.EventLog;
 import android.util.Slog;
 import android.view.Display;
 
-import com.android.server.LocalServices;
-
-import cyanogenmod.power.PerformanceManagerInternal;
 import cyanogenmod.providers.CMSettings;
 
 import java.io.FileDescriptor;
@@ -270,8 +267,6 @@ final class ActivityStack {
         }
     }
 
-    private final PerformanceManagerInternal mPerf;
-
     final Handler mHandler;
 
     final class ActivityStackHandler extends Handler {
@@ -370,7 +365,6 @@ final class ActivityStack {
         mCurrentUser = mService.mCurrentUserId;
         mRecentTasks = recentTasks;
         mOverrideConfig = Configuration.EMPTY;
-        mPerf = LocalServices.getService(PerformanceManagerInternal.class);
     }
 
     boolean okToShowLocked(ActivityRecord r) {
@@ -1697,10 +1691,8 @@ final class ActivityStack {
         if (DEBUG_SWITCH) Slog.v(TAG_SWITCH, "Resuming " + next);
 
         // Some activities may want to alter the system power management
-        if (mStackSupervisor.mPerf != null) {
-            mStackSupervisor.mPerf.activityResumed(next.intent);
-        }
-        
+        mStackSupervisor.mPm.activityResumed(next.intent);
+
         // If we are currently pausing an activity, then don't do anything
         // until that is done.
         if (!mStackSupervisor.allPausedActivitiesComplete()) {
@@ -1834,9 +1826,7 @@ final class ActivityStack {
                             ? AppTransition.TRANSIT_ACTIVITY_CLOSE
                             : AppTransition.TRANSIT_TASK_CLOSE, false);
                     if (prev.task != next.task) {
-                        if (mStackSupervisor.mPerf != null) {
-                            mStackSupervisor.mPerf.cpuBoost(2000 * 1000);
-                        }
+                        mStackSupervisor.mPm.cpuBoost(2000 * 1000);
                     }
                 }
                 mWindowManager.setAppWillBeHidden(prev.appToken);
@@ -1854,9 +1844,7 @@ final class ActivityStack {
                                     ? AppTransition.TRANSIT_TASK_OPEN_BEHIND
                                     : AppTransition.TRANSIT_TASK_OPEN, false);
                     if (prev.task != next.task) {
-                        if (mStackSupervisor.mPerf != null) {
-                            mStackSupervisor.mPerf.cpuBoost(2000 * 1000);
-                        }
+                        mStackSupervisor.mPm.cpuBoost(2000 * 1000);
                     }
                 }
             }

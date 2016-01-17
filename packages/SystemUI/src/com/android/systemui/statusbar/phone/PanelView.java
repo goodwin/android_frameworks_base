@@ -23,6 +23,7 @@ import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.os.PowerManager;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.MotionEvent;
@@ -39,8 +40,6 @@ import com.android.systemui.doze.DozeLog;
 import com.android.systemui.statusbar.FlingAnimationUtils;
 import com.android.systemui.statusbar.StatusBarState;
 import com.android.systemui.statusbar.policy.HeadsUpManager;
-
-import cyanogenmod.power.PerformanceManager;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -88,7 +87,7 @@ public abstract class PanelView extends FrameLayout {
     private VelocityTrackerInterface mVelocityTracker;
     private FlingAnimationUtils mFlingAnimationUtils;
 
-    private final PerformanceManager mPerf;
+    private final PowerManager mPm;
 
     /**
      * Whether an instant expand request is currently pending and we are just waiting for layout.
@@ -207,7 +206,7 @@ public abstract class PanelView extends FrameLayout {
                 AnimationUtils.loadInterpolator(context, android.R.interpolator.linear_out_slow_in);
         mBounceInterpolator = new BounceInterpolator();
 
-        mPerf = PerformanceManager.getInstance(context);
+        mPm = (PowerManager)context.getSystemService(Context.POWER_SERVICE);
     }
 
     protected void loadDimens() {
@@ -678,7 +677,7 @@ public abstract class PanelView extends FrameLayout {
             }
         }
 
-        mPerf.cpuBoost((int)animator.getDuration() * 1000);
+        mPm.cpuBoost((int)animator.getDuration() * 1000);
 
         animator.addListener(new AnimatorListenerAdapter() {
             private boolean mCancelled;

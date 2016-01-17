@@ -101,12 +101,12 @@ import android.util.ArraySet;
 import android.util.EventLog;
 import android.util.Slog;
 import android.util.SparseArray;
+
 import android.util.SparseIntArray;
 import android.view.Display;
 import android.view.DisplayInfo;
 import android.view.InputEvent;
 import android.view.Surface;
-
 import com.android.internal.app.HeavyWeightSwitcherActivity;
 import com.android.internal.app.IVoiceInteractor;
 import com.android.internal.content.ReferrerIntent;
@@ -118,7 +118,6 @@ import com.android.server.LocalServices;
 import com.android.server.am.ActivityStack.ActivityState;
 import com.android.server.wm.WindowManagerService;
 
-import cyanogenmod.power.PerformanceManagerInternal;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
@@ -276,8 +275,6 @@ public final class ActivityStackSupervisor implements DisplayListener {
 
     PowerManager mPm;
 
-    PerformanceManagerInternal mPerf;
-
     /**
      * Is the privacy guard currently enabled? Shared between ActivityStacks
      */
@@ -354,17 +351,6 @@ public final class ActivityStackSupervisor implements DisplayListener {
         mHandler = new ActivityStackSupervisorHandler(mService.mHandler.getLooper());
     }
 
-    private void launchBoost() {
-        if (mPerf == null) {
-            mPerf = LocalServices.getService(PerformanceManagerInternal.class);
-        }
-        if (mPerf == null) {
-            Slog.e(TAG, "PerformanceManager not ready!");
-        } else {
-            mPerf.launchBoost();
-        }
-    }
-    
     /**
      * At the time when the constructor runs, the power manager has not yet been
      * initialized.  So we initialize our wakelocks afterwards.
@@ -1452,7 +1438,7 @@ public final class ActivityStackSupervisor implements DisplayListener {
                             (container.mActivityDisplay == null ? Display.DEFAULT_DISPLAY :
                                     container.mActivityDisplay.mDisplayId)));
             /* Acquire perf lock during new app launch */
-            launchBoost();
+            mPm.launchBoost();
         }
 
         ActivityRecord sourceRecord = null;
@@ -2805,7 +2791,7 @@ public final class ActivityStackSupervisor implements DisplayListener {
         ActivityRecord top = task.stack.topRunningActivityLocked(null);
         /* App is launching from recent apps and it's a new process */
         if(top != null && top.state == ActivityState.DESTROYED) {
-            launchBoost();
+            mPm.launchBoost();
         }
 
         if ((flags & ActivityManager.MOVE_TASK_NO_USER_ACTION) == 0) {
@@ -3090,14 +3076,14 @@ public final class ActivityStackSupervisor implements DisplayListener {
                 final ActivityRecord ar = stack.findTaskLocked(r);
                 if (ar != null) {
                     if (ar.state == ActivityState.DESTROYED) {
-                        launchBoost();
+                        mPm.launchBoost();
                     }
                     return ar;
                 }
             }
         }
         if (DEBUG_TASKS) Slog.d(TAG_TASKS, "No task found");
-        launchBoost();
+        mPm.launchBoost();
 
         return null;
     }
