@@ -913,12 +913,9 @@ public class KeyguardViewMediator extends SystemUI {
             if (DEBUG) Log.d(TAG, "isKeyguardDisabled: keyguard is disabled internally");
             return true;
         }
-        Profile profile = mProfileManager.getActiveProfile();
-        if (profile != null) {
-            if (profile.getScreenLockMode().getValue() == Profile.LockMode.DISABLE) {
-                if (DEBUG) Log.d(TAG, "isKeyguardDisabled: keyguard is disabled by profile");
-                return true;
-            }
+        if (isProfileDisablingKeyguard()) {
+            if (DEBUG) Log.d(TAG, "isKeyguardDisabled: keyguard is disabled by profile");
+            return true;
         }
         return false;
     }
@@ -968,7 +965,7 @@ public class KeyguardViewMediator extends SystemUI {
         return !mInternallyDisabled;
     }
 
-    private boolean isProfileDisablingKeyguard() {
+    public boolean isProfileDisablingKeyguard() {
         final Profile activeProfile = ProfileManager.getInstance(mContext).getActiveProfile();
         return activeProfile != null
                 && activeProfile.getScreenLockMode().getValue() == Profile.LockMode.DISABLE;
