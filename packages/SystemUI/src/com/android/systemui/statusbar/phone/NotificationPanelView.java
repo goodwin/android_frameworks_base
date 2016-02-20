@@ -40,6 +40,7 @@ import android.os.Handler;
 import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.UserHandle;
+import android.provider.Settings;
 import android.util.AttributeSet;
 import android.util.MathUtils;
 import android.view.Display;
@@ -2764,7 +2765,7 @@ public class NotificationPanelView extends PanelView implements
                     CMSettings.System.STATUS_BAR_QUICK_QS_PULLDOWN), false, this);
             resolver.registerContentObserver(CMSettings.System.getUriFor(
                     CMSettings.System.DOUBLE_TAP_SLEEP_GESTURE), false, this);
-            resolver.registerContentObserver(CMSettings.System.getUriFor(
+            resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.QS_SMART_PULLDOWN),
                     false, this,UserHandle.USER_ALL);
             update();
