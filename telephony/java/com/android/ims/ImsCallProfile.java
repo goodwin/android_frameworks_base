@@ -203,7 +203,6 @@ public class ImsCallProfile implements Parcelable {
      *      updateWifiStateFromExtras(Bundle)} to determine whether to set the
      * {@link android.telecom.Connection#CAPABILITY_WIFI} capability on a connection.
      */
-    public static final String EXTRA_CALL_RAT_TYPE = "CallRadioTech";
 
     /**
      * Extra key which the RIL can use to indicate the radio technology used for a call.
