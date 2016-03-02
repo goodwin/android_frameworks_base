@@ -1093,8 +1093,10 @@ class MountService extends IMountService.Stub
                 final long destroy = Long.parseLong(cooked[6]);
 
                 final DropBoxManager dropBox = mContext.getSystemService(DropBoxManager.class);
-                dropBox.addText(TAG_STORAGE_BENCHMARK, scrubPath(path)
-                        + " " + ident + " " + create + " " + run + " " + destroy);
+                if (dropBox != null) {
+                    dropBox.addText(TAG_STORAGE_BENCHMARK, scrubPath(path)
+                            + " " + ident + " " + create + " " + run + " " + destroy);
+                }
 
                 final VolumeRecord rec = findRecordForPath(path);
                 if (rec != null) {
@@ -1111,8 +1113,10 @@ class MountService extends IMountService.Stub
                 final long time = Long.parseLong(cooked[3]);
 
                 final DropBoxManager dropBox = mContext.getSystemService(DropBoxManager.class);
-                dropBox.addText(TAG_STORAGE_TRIM, scrubPath(path)
-                        + " " + bytes + " " + time);
+                if (dropBox != null) {
+                    dropBox.addText(TAG_STORAGE_TRIM, scrubPath(path)
+                            + " " + bytes + " " + time);
+                }
 
                 final VolumeRecord rec = findRecordForPath(path);
                 if (rec != null) {
@@ -2400,7 +2404,7 @@ class MountService extends IMountService.Stub
         }
     }
 
-    public int encryptStorage(int type, String password) {
+    private int encryptStorageExtended(int type, String password, boolean wipe) {
         if (TextUtils.isEmpty(password) && type != StorageManager.CRYPT_TYPE_DEFAULT) {
             throw new IllegalArgumentException("password cannot be empty");
         }
@@ -2430,6 +2434,22 @@ class MountService extends IMountService.Stub
         return 0;
     }
 
+    /** Encrypt Storage given a password.
+     *  @param type The password type.
+     *  @param password The password to be used in encryption.
+     */
+    public int encryptStorage(int type, String password) {
+        return encryptStorageExtended(type, password, false);
+    }
+
+    /** Encrypt Storage given a password after wiping it.
+     *  @param type The password type.
+     *  @param password The password to be used in encryption.
+     */
+    public int encryptWipeStorage(int type, String password) {
+        return encryptStorageExtended(type, password, true);
+    }
+
     /** Set the password for encrypting the master key.
      *  @param type One of the CRYPTO_TYPE_XXX consts defined in StorageManager.
      *  @param password The password to set.
@@ -2444,9 +2464,13 @@ class MountService extends IMountService.Stub
             Slog.i(TAG, "changing encryption password...");
         }
 
+        LockSettingsService lockSettings = new LockSettingsService(mContext);
+        String currentPassword = lockSettings.getPassword();
+
         try {
             NativeDaemonEvent event = mCryptConnector.execute("cryptfs", "changepw", CRYPTO_TYPES[type],
-                        new SensitiveArg(password));
+                        new SensitiveArg(currentPassword), new SensitiveArg(password));
+            lockSettings.sanitizePassword();
             return Integer.parseInt(event.getMessage());
         } catch (NativeDaemonConnectorException e) {
             // Encryption failed

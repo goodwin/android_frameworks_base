@@ -64,11 +64,14 @@ import com.android.internal.widget.ILockSettings;
 
 import java.net.URISyntaxException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * The Settings provider contains global system-level device preferences.
@@ -654,6 +657,19 @@ public final class Settings {
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS =
             "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS";
+
+    /**
+     * @hide
+     * Activity Action: Show the "app ops" details screen.
+     * <p>
+     * Input: The Intent's data URI specifies the application package name
+     * to be shown, with the "package" scheme.  That is "package:com.my.app".
+     * <p>
+     * Output: Nothing.
+     */
+    @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
+    public static final String ACTION_APP_OPS_DETAILS_SETTINGS =
+            "android.settings.APP_OPS_DETAILS_SETTINGS";
 
     /**
      * @hide
@@ -1492,6 +1508,12 @@ public final class Settings {
 
             // At one time in System, then Global, but now back in Secure
             MOVED_TO_SECURE.add(Secure.INSTALL_NON_MARKET_APPS);
+
+            MOVED_TO_SECURE.add(System.DEV_FORCE_SHOW_NAVBAR);
+            MOVED_TO_SECURE.add(System.KEYBOARD_BRIGHTNESS);
+            MOVED_TO_SECURE.add(System.BUTTON_BRIGHTNESS);
+            MOVED_TO_SECURE.add(System.BUTTON_BACKLIGHT_TIMEOUT);
+            MOVED_TO_SECURE.add(Secure.VOLUME_LINK_NOTIFICATION);
         }
 
         private static final HashSet<String> MOVED_TO_GLOBAL;
@@ -1583,6 +1605,44 @@ public final class Settings {
             }
         };
 
+        /**
+         * Put a delimited list as a string
+         * @param resolver to access the database with
+         * @param name to store
+         * @param delimiter to split
+         * @param list to join and store
+         * @hide
+         */
+        public static void putListAsDelimitedString(ContentResolver resolver, String name,
+                                                    String delimiter, List<String> list) {
+            String store = TextUtils.join(delimiter, list);
+            putString(resolver, name, store);
+        }
+
+        /**
+         * Get a delimited string returned as a list
+         * @param resolver to access the database with
+         * @param name to store
+         * @param delimiter to split the list with
+         * @return list of strings for a specific Settings.Secure item
+         * @hide
+         */
+        public static List<String> getDelimitedStringAsList(ContentResolver resolver, String name,
+                                                            String delimiter) {
+            String baseString = getString(resolver, name);
+            List<String> list = new ArrayList<String>();
+            if (!TextUtils.isEmpty(baseString)) {
+                final String[] array = TextUtils.split(baseString, Pattern.quote(delimiter));
+                for (String item : array) {
+                    if (TextUtils.isEmpty(item)) {
+                        continue;
+                    }
+                    list.add(item);
+                }
+            }
+            return list;
+        }
+
         /** @hide */
         public static void getMovedToGlobalSettings(Set<String> outKeySet) {
             outKeySet.addAll(MOVED_TO_GLOBAL);
@@ -1612,6 +1672,7 @@ public final class Settings {
         /** @hide */
         public static String getStringForUser(ContentResolver resolver, String name,
                 int userHandle) {
+            android.util.SeempLog.record(android.util.SeempLog.getSeempGetApiIdFromValue(name));
             if (MOVED_TO_SECURE.contains(name)) {
                 Log.w(TAG, "Setting " + name + " has moved from android.provider.Settings.System"
                         + " to android.provider.Settings.Secure, returning read-only value.");
@@ -1639,6 +1700,7 @@ public final class Settings {
         /** @hide */
         public static boolean putStringForUser(ContentResolver resolver, String name, String value,
                 int userHandle) {
+            android.util.SeempLog.record(android.util.SeempLog.getSeempPutApiIdFromValue(name));
             if (MOVED_TO_SECURE.contains(name)) {
                 Log.w(TAG, "Setting " + name + " has moved from android.provider.Settings.System"
                         + " to android.provider.Settings.Secure, value is unchanged.");
@@ -2433,6 +2495,31 @@ public final class Settings {
         public static final int SCREEN_BRIGHTNESS_MODE_AUTOMATIC = 1;
 
         /**
+         * The keyboard brightness to be used while the screen is on.
+         * Valid value range is between 0 and {@link PowerManager#getMaximumKeyboardBrightness()}
+         * @deprecated
+         * @hide
+         */
+        public static final String KEYBOARD_BRIGHTNESS = "keyboard_brightness";
+
+        /**
+         * The button brightness to be used while the screen is on or after a button press,
+         * depending on the value of {@link BUTTON_BACKLIGHT_TIMEOUT}.
+         * Valid value range is between 0 and {@link PowerManager#getMaximumButtonBrightness()}
+         * @deprecated
+         * @hide
+         */
+        public static final String BUTTON_BRIGHTNESS = "button_brightness";
+
+        /**
+         * The time in ms to keep the button backlight on after pressing a button.
+         * A value of 0 will keep the buttons on for as long as the screen is on.
+         * @deprecated
+         * @hide
+         */
+        public static final String BUTTON_BACKLIGHT_TIMEOUT = "button_backlight_timeout";
+
+        /**
          * Control whether the process CPU usage meter should be shown.
          *
          * @deprecated Use {@link Global#SHOW_PROCESSES} instead
@@ -2596,6 +2683,55 @@ public final class Settings {
         private static final Validator NOTIFICATIONS_USE_RING_VOLUME_VALIDATOR = sBooleanValidator;
 
         /**
+         * Whether the blacklisting feature for phone calls is enabled
+         * @hide
+         */
+        public static final String PHONE_BLACKLIST_ENABLED = "phone_blacklist_enabled";
+
+        /**
+         * Whether a notification should be shown when a call/message is blocked
+         * @hide
+         */
+        public static final String PHONE_BLACKLIST_NOTIFY_ENABLED = "phone_blacklist_notify_enabled";
+
+        /**
+         * Whether the blacklisting feature for phone calls from private numbers is enabled
+         * @hide
+         */
+        public static final String PHONE_BLACKLIST_PRIVATE_NUMBER_MODE = "phone_blacklist_private_number_enabled";
+
+        /**
+         * Whether the blacklisting feature for phone calls from unknown numbers is enabled
+         * @hide
+         */
+        public static final String PHONE_BLACKLIST_UNKNOWN_NUMBER_MODE = "phone_blacklist_unknown_number_enabled";
+
+        /**
+         * Constants to be used for {@link PHONE_BLACKLIST_PRIVATE_NUMBER_MODE} and
+         * {@link PHONE_BLACKLIST_UNKNOWN_NUMBER_MODE}.
+         * @hide
+         */
+        public static final int BLACKLIST_DO_NOT_BLOCK = 0;
+        /**
+         * @hide
+         */
+        public static final int BLACKLIST_BLOCK = 1;
+        /**
+         * @hide
+         */
+        public static final int BLACKLIST_PHONE_SHIFT = 0;
+        /**
+         * @hide
+         */
+        public static final int BLACKLIST_MESSAGE_SHIFT = 4;
+
+        /**
+         * Whether the regex blacklisting feature for phone calls is enabled
+         * @hide
+         */
+        public static final String PHONE_BLACKLIST_REGEX_ENABLED = "phone_blacklist_regex_enabled";
+
+        /**
          * Whether silent mode should allow vibration feedback. This is used
          * internally in AudioService and the Sound settings activity to
          * coordinate decoupling of vibrate and silent modes. This setting
@@ -2644,6 +2780,30 @@ public final class Settings {
         private static final Validator RINGTONE_VALIDATOR = sUriValidator;
 
         /**
+         * Persistent store for the SIM-2 ringtone URI.
+         * <p>
+         * If you need to play SIM-2 ringtone at any given time, it is recommended
+         * you give {@link #DEFAULT_RINGTONE_URI_2} to the media player.  It will resolve
+         * to the set default ringtone at the time of playing.
+         *
+         * @see #DEFAULT_RINGTONE_URI_2
+         * @hide
+         */
+        public static final String RINGTONE_2 = "ringtone_2";
+
+        /**
+         * Persistent store for the SIM-3 ringtone URI.
+         * <p>
+         * If you need to play SIM-3 ringtone at any given time, it is recommended
+         * you give {@link #DEFAULT_RINGTONE_URI_3} to the media player.  It will resolve
+         * to the set default ringtone at the time of playing.
+         *
+         * @see #DEFAULT_RINGTONE_URI_3
+         * @hide
+         */
+        public static final String RINGTONE_3 = "ringtone_3";
+
+        /**
          * A {@link Uri} that will point to the current default ringtone at any
          * given time.
          * <p>
@@ -2652,6 +2812,39 @@ public final class Settings {
          * FileNotFoundException.
          */
         public static final Uri DEFAULT_RINGTONE_URI = getUriFor(RINGTONE);
+
+        /**
+         * A {@link Uri} that will point to the current SIM-2 ringtone at any
+         * given time.
+         * <p>
+         * If the current default ringtone is in the DRM provider and the caller
+         * does not have permission, the exception will be a
+         * FileNotFoundException.
+         *
+         * @hide
+         */
+        public static final Uri DEFAULT_RINGTONE_URI_2 = getUriFor(RINGTONE_2);
+
+        /**
+         * A {@link Uri} that will point to the current SIM-3 ringtone at any
+         * given time.
+         * <p>
+         * If the current default ringtone is in the DRM provider and the caller
+         * does not have permission, the exception will be a
+         * FileNotFoundException.
+         *
+         * @hide
+         */
+        public static final Uri DEFAULT_RINGTONE_URI_3 = getUriFor(RINGTONE_3);
+
+        /**
+         * Maximum number of ringtones supported.
+         * <p>
+         * Maximum number of ringtones supported by settings. Increment this
+         * if a new URI needs to be added for ringtone.
+         * @hide
+         */
+        public static final int MAX_NUM_RINGTONES = 3;
 
         /**
          * Persistent store for the system-wide default notification sound.
@@ -2723,6 +2916,15 @@ public final class Settings {
         private static final Validator TEXT_AUTO_CAPS_VALIDATOR = sBooleanValidator;
 
         /**
+         * Setting to show if system is in power off alarm mode. 1 = true, 0 = false
+         * @hide
+         */
+        public static final String POWER_OFF_ALARM_MODE = "power_off_alarm_mode";
+
+        /** Validator for POWER_OFF_ALARM_MODE */
+        private static final Validator POWER_OFF_ALARM_MODE_VALIDATOR = sBooleanValidator;
+
+        /**
          * Setting to enable Auto Punctuate in text editors. 1 = On, 0 = Off. This
          * feature converts two spaces to a "." and space.
          */
@@ -2788,6 +2990,14 @@ public final class Settings {
                 new DiscreteValueValidator(new String[] {"12", "24"});
 
         /**
+        * Developer options - Navigation Bar show switch
+        * @deprecated Moved to CMSettings.Secure.DEV_FORCE_SHOW_NAVBAR
+        * @hide
+        */
+        public static final String DEV_FORCE_SHOW_NAVBAR = "dev_force_show_navbar";
+
+
+        /**
          * Date format string
          *   mm/dd/yyyy
          *   dd/mm/yyyy
@@ -2847,6 +3057,19 @@ public final class Settings {
          */
         @Deprecated
         public static final String ANIMATOR_DURATION_SCALE = Global.ANIMATOR_DURATION_SCALE;
+
+        /**
+         * Control the type of rotation which can be performed using the accelerometer
+         * if ACCELEROMETER_ROTATION is enabled.
+         * Value is a bitwise combination of
+         * 1 = 0 degrees (portrait)
+         * 2 = 90 degrees (left)
+         * 4 = 180 degrees (inverted portrait)
+         * 8 = 270 degrees (right)
+         * Setting to 0 is effectively orientation lock
+         * @hide
+         */
+        public static final String ACCELEROMETER_ROTATION_ANGLES = "accelerometer_rotation_angles";
 
         /**
          * Control whether the accelerometer will be used to change screen
@@ -3183,6 +3406,63 @@ public final class Settings {
                 new InclusiveFloatRangeValidator(-7, 7);
 
         /**
+         * Show icon when stylus is used?
+         * 0 = no
+         * 1 = yes
+         * @hide
+         */
+        public static final String STYLUS_ICON_ENABLED = "stylus_icon_enabled";
+
+        /**
+         * Enable Stylus Gestures
+         *
+         * @hide
+         */
+        public static final String ENABLE_STYLUS_GESTURES = "enable_stylus_gestures";
+
+        /**
+         * Left Swipe Action
+         *
+         * @hide
+         */
+        public static final String GESTURES_LEFT_SWIPE = "gestures_left_swipe";
+
+        /**
+         * Right Swipe Action
+         *
+         * @hide
+         */
+        public static final String GESTURES_RIGHT_SWIPE = "gestures_right_swipe";
+
+        /**
+         * Up Swipe Action
+         *
+         * @hide
+         */
+        public static final String GESTURES_UP_SWIPE = "gestures_up_swipe";
+
+        /**
+         * down Swipe Action
+         *
+         * @hide
+         */
+        public static final String GESTURES_DOWN_SWIPE = "gestures_down_swipe";
+
+        /**
+         * Long press Action
+         *
+         * @hide
+         */
+        public static final String GESTURES_LONG_PRESS = "gestures_long_press";
+
+        /**
+         * double tap Action
+         *
+         * @hide
+         */
+        public static final String GESTURES_DOUBLE_TAP = "gestures_double_tap";
+
+        /**
          * Whether lock-to-app will be triggered by long-press on recents.
          * @hide
          */
@@ -3218,6 +3498,44 @@ public final class Settings {
          * it to PRIVATE_SETTINGS below. Also add a validator that can validate
          * the setting value. See an example above.
          */
+
+         /**
+         * Whether wifi settings will connect to access point automatically
+         * 0 = automatically
+         * 1 = manually
+         * @hide
+         */
+        public static final String WIFI_AUTO_CONNECT_TYPE = "wifi_auto_connect_type";
+
+        /**
+          * Volume keys control cursor in text fields (default is 0)
+          * 0 - Disabled
+          * 1 - Volume up/down moves cursor left/right
+          * 2 - Volume up/down moves cursor right/left
+          * @hide
+          */
+         public static final String VOLUME_KEY_CURSOR_CONTROL = "volume_key_cursor_control";
+
+        /**
+         * Whether to enable voice wakeup.  The value is boolean (1 or 0).
+         * @hide
+         */
+        public static final String VOICE_WAKEUP = "voice_wakeup";
+
+        /**
+         * An intent (a flattened Uri String) to launch when user voice launch
+         * action is detected. An empty or null string will launch the default
+         * voice search activity.
+         * @hide
+         */
+        public static final String VOICE_LAUNCH_INTENT = "voice_launch_intent";
+
+        /**
+         * Volume key controls ringtone or media sound stream
+         * @hide
+         */
+        public static final String VOLUME_KEYS_CONTROL_RING_STREAM =
+                "volume_keys_control_ring_stream";
 
         /**
          * Settings to backup. This is here so that it's in the same place as the settings
@@ -3270,7 +3588,12 @@ public final class Settings {
             VIBRATE_WHEN_RINGING,
             RINGTONE,
             LOCK_TO_APP_ENABLED,
-            NOTIFICATION_SOUND
+            NOTIFICATION_SOUND,
+            PHONE_BLACKLIST_ENABLED,
+            PHONE_BLACKLIST_NOTIFY_ENABLED,
+            PHONE_BLACKLIST_PRIVATE_NUMBER_MODE,
+            PHONE_BLACKLIST_UNKNOWN_NUMBER_MODE,
+            PHONE_BLACKLIST_REGEX_ENABLED,
         };
 
         /**
@@ -3323,6 +3646,7 @@ public final class Settings {
             PUBLIC_SETTINGS.add(SOUND_EFFECTS_ENABLED);
             PUBLIC_SETTINGS.add(HAPTIC_FEEDBACK_ENABLED);
             PUBLIC_SETTINGS.add(SHOW_WEB_SUGGESTIONS);
+            PUBLIC_SETTINGS.add(POWER_OFF_ALARM_MODE);
         }
 
         /**
@@ -3448,6 +3772,7 @@ public final class Settings {
             VALIDATORS.put(WIFI_STATIC_NETMASK, WIFI_STATIC_NETMASK_VALIDATOR);
             VALIDATORS.put(WIFI_STATIC_DNS1, WIFI_STATIC_DNS1_VALIDATOR);
             VALIDATORS.put(WIFI_STATIC_DNS2, WIFI_STATIC_DNS2_VALIDATOR);
+            VALIDATORS.put(POWER_OFF_ALARM_MODE, POWER_OFF_ALARM_MODE_VALIDATOR);
         }
 
         /**
@@ -3756,6 +4081,9 @@ public final class Settings {
             MOVED_TO_LOCK_SETTINGS.add(Secure.LOCK_PATTERN_ENABLED);
             MOVED_TO_LOCK_SETTINGS.add(Secure.LOCK_PATTERN_VISIBLE);
             MOVED_TO_LOCK_SETTINGS.add(Secure.LOCK_PATTERN_TACTILE_FEEDBACK_ENABLED);
+            MOVED_TO_LOCK_SETTINGS.add(Secure.LOCK_PATTERN_SIZE);
+            MOVED_TO_LOCK_SETTINGS.add(Secure.LOCK_DOTS_VISIBLE);
+            MOVED_TO_LOCK_SETTINGS.add(Secure.LOCK_SHOW_ERROR_PATH);
 
             MOVED_TO_GLOBAL = new HashSet<String>();
             MOVED_TO_GLOBAL.add(Settings.Global.ADB_ENABLED);
@@ -3870,6 +4198,44 @@ public final class Settings {
             MOVED_TO_GLOBAL.add(Settings.Global.DEFAULT_DNS_SERVER);
             MOVED_TO_GLOBAL.add(Settings.Global.PREFERRED_NETWORK_MODE);
             MOVED_TO_GLOBAL.add(Settings.Global.WEBVIEW_DATA_REDUCTION_PROXY_KEY);
+        }
+
+        /**
+         * Put a delimited list as a string
+         * @param resolver to access the database with
+         * @param name to store
+         * @param delimiter to split
+         * @param list to join and store
+         * @hide
+         */
+        public static void putListAsDelimitedString(ContentResolver resolver, String name,
+                                                    String delimiter, List<String> list) {
+            String store = TextUtils.join(delimiter, list);
+            putString(resolver, name, store);
+        }
+
+        /**
+         * Get a delimited string returned as a list
+         * @param resolver to access the database with
+         * @param name to store
+         * @param delimiter to split the list with
+         * @return list of strings for a specific Settings.Secure item
+         * @hide
+         */
+        public static List<String> getDelimitedStringAsList(ContentResolver resolver, String name,
+                                                            String delimiter) {
+            String baseString = getString(resolver, name);
+            List<String> list = new ArrayList<String>();
+            if (!TextUtils.isEmpty(baseString)) {
+                final String[] array = TextUtils.split(baseString, Pattern.quote(delimiter));
+                for (String item : array) {
+                    if (TextUtils.isEmpty(item)) {
+                        continue;
+                    }
+                    list.add(item);
+                }
+            }
+            return list;
         }
 
         /** @hide */
@@ -4488,6 +4854,24 @@ public final class Settings {
                 LOCK_PATTERN_TACTILE_FEEDBACK_ENABLED = "lock_pattern_tactile_feedback_enabled";
 
         /**
+         * Determines the width and height of the LockPatternView widget
+         * @hide
+         */
+        public static final String LOCK_PATTERN_SIZE = "lock_pattern_size";
+
+        /**
+         * Whether lock pattern will show dots (0 = false, 1 = true)
+         * @hide
+         */
+        public static final String LOCK_DOTS_VISIBLE = "lock_pattern_dotsvisible";
+
+        /**
+         * Whether lockscreen error pattern is visible (0 = false, 1 = true)
+         * @hide
+         */
+        public static final String LOCK_SHOW_ERROR_PATH = "lock_pattern_show_error_path";
+
+        /**
          * This preference allows the device to be locked given time after screen goes off,
          * subject to current DeviceAdmin policy limits.
          * @hide
@@ -4586,6 +4970,12 @@ public final class Settings {
          * No longer supported.
          */
         public static final String PARENTAL_CONTROL_REDIRECT_URL = "parental_control_redirect_url";
+
+        /**
+         * Known good originating source sms addresses
+         * @hide
+         */
+        public static final String PROTECTED_SMS_ADDRESSES = "protected_sms_addresses";
 
         /**
          * Settings classname to launch when Settings is clicked from All
@@ -5155,6 +5545,12 @@ public final class Settings {
                 "connectivity_release_pending_intent_delay_ms";
 
         /**
+        * Whether the Wimax should be on.  Only the WiMAX service should touch this.
+        * @hide
+        */
+        public static final String WIMAX_ON = "wimax_on";
+
+        /**
          * Whether background data usage is allowed.
          *
          * @deprecated As of {@link VERSION_CODES#ICE_CREAM_SANDWICH},
@@ -5692,6 +6088,12 @@ public final class Settings {
         public static final String ASSISTANT = "assistant";
 
         /**
+         * Default theme to use.  If empty, use system.
+         * @hide
+         */
+        public static final String DEFAULT_THEME_PACKAGE = "default_theme_package";
+
+        /**
          * Whether the camera launch gesture should be disabled.
          *
          * @hide
@@ -5706,6 +6108,12 @@ public final class Settings {
          */
         public static final String CAMERA_DOUBLE_TAP_POWER_GESTURE_DISABLED =
                 "camera_double_tap_power_gesture_disabled";
+
+        /**
+         * Boolean value whether to link ringtone and notification volume
+         * @hide
+         */
+        public static final String VOLUME_LINK_NOTIFICATION = "volume_link_notification";
 
         /**
          * This are the settings to be backed up.
@@ -5763,7 +6171,7 @@ public final class Settings {
             MOUNT_UMS_NOTIFY_ENABLED,
             SLEEP_TIMEOUT,
             DOUBLE_TAP_TO_WAKE,
-            CAMERA_GESTURE_DISABLED,
+            CAMERA_GESTURE_DISABLED
         };
 
         /**
@@ -6168,6 +6576,14 @@ public final class Settings {
          * Whether ADB is enabled.
          */
         public static final String ADB_ENABLED = "adb_enabled";
+
+        /**
+         * String to contain power menu actions
+         * @deprecated Use {@link CMSettings.Secure#POWER_MENU_ACTIONS} instead
+         * @hide
+         */
+        @Deprecated
+        public static final String POWER_MENU_ACTIONS = "power_menu_actions";
 
         /**
          * Whether Views are allowed to save their attribute data.
@@ -7227,6 +7643,9 @@ public final class Settings {
                 BLUETOOTH_A2DP_SINK_PRIORITY_PREFIX = "bluetooth_a2dp_sink_priority_";
         /** {@hide} */
         public static final String
+                BLUETOOTH_A2DP_SRC_PRIORITY_PREFIX = "bluetooth_a2dp_src_priority_";
+        /** {@hide} */
+        public static final String
                 BLUETOOTH_INPUT_DEVICE_PRIORITY_PREFIX = "bluetooth_input_device_priority_";
         /** {@hide} */
         public static final String
@@ -7324,6 +7743,14 @@ public final class Settings {
          */
         public static final String getBluetoothA2dpSinkPriorityKey(String address) {
             return BLUETOOTH_A2DP_SINK_PRIORITY_PREFIX + address.toUpperCase(Locale.ROOT);
+        }
+
+        /**
+         * Get the key that retrieves a bluetooth a2dp src's priority.
+         * @hide
+         */
+        public static final String getBluetoothA2dpSrcPriorityKey(String address) {
+            return BLUETOOTH_A2DP_SRC_PRIORITY_PREFIX + address.toUpperCase(Locale.ROOT);
         }
 
         /**
@@ -7557,11 +7984,20 @@ public final class Settings {
         /**
          * Defines global runtime overrides to window policy.
          *
-         * See {@link com.android.server.policy.PolicyControl} for value format.
+         * See {@link android.view.WindowManagerPolicyControl} for value format.
          *
          * @hide
          */
         public static final String POLICY_CONTROL = "policy_control";
+
+        /**
+         * Defines global runtime overrides to window policy style.
+         *
+         * See {@link android.view.WindowManagerPolicyControl} for value definitions.
+         *
+         * @hide
+         */
+        public static final String POLICY_CONTROL_STYLE = "policy_control_style";
 
         /**
          * Defines global zen mode.  ZEN_MODE_OFF, ZEN_MODE_IMPORTANT_INTERRUPTIONS,
@@ -7653,12 +8089,21 @@ public final class Settings {
         public static final String REQUIRE_PASSWORD_TO_DECRYPT = "require_password_to_decrypt";
 
         /**
-         * Whether the Volte/VT is enabled
+         * Whether the Volte is enabled
          * <p>
          * Type: int (0 for false, 1 for true)
          * @hide
          */
         public static final String ENHANCED_4G_MODE_ENABLED = "volte_vt_enabled";
+
+        /**
+         * Whether VT (Video Telephony over IMS) is enabled
+         * <p>
+         * Type: int (0 for false, 1 for true)
+         *
+         * @hide
+         */
+        public static final String VT_IMS_ENABLED = "vt_ims_enabled";
 
         /**
          * Whether WFC is enabled
@@ -7743,11 +8188,50 @@ public final class Settings {
         static {
             MOVED_TO_SECURE = new HashSet<String>(1);
             MOVED_TO_SECURE.add(Settings.Global.INSTALL_NON_MARKET_APPS);
+            MOVED_TO_SECURE.add(Settings.Global.POWER_MENU_ACTIONS);
         }
 
         /** @hide */
         public static void getMovedToSecureSettings(Set<String> outKeySet) {
             outKeySet.addAll(MOVED_TO_SECURE);
+        }
+
+        /**
+         * Put a delimited list as a string
+         * @param resolver to access the database with
+         * @param name to store
+         * @param delimiter to split
+         * @param list to join and store
+         * @hide
+         */
+        public static void putListAsDelimitedString(ContentResolver resolver, String name,
+                                                    String delimiter, List<String> list) {
+            String store = TextUtils.join(delimiter, list);
+            putString(resolver, name, store);
+        }
+
+        /**
+         * Get a delimited string returned as a list
+         * @param resolver to access the database with
+         * @param name to store
+         * @param delimiter to split the list with
+         * @return list of strings for a specific Settings.Secure item
+         * @hide
+         */
+        public static List<String> getDelimitedStringAsList(ContentResolver resolver, String name,
+                                                            String delimiter) {
+            String baseString = getString(resolver, name);
+            List<String> list = new ArrayList<String>();
+            if (!TextUtils.isEmpty(baseString)) {
+                final String[] array = TextUtils.split(baseString, Pattern.quote(delimiter));
+                for (String item : array) {
+                    if (TextUtils.isEmpty(item)) {
+                        continue;
+                    }
+                    list.add(item);
+                }
+            }
+            return list;
         }
 
         /**
@@ -7806,6 +8290,12 @@ public final class Settings {
          * @return the corresponding content URI, or null if not present
          */
         public static Uri getUriFor(String name) {
+            if (MOVED_TO_SECURE.contains(name)) {
+                Log.w(TAG, "Setting " + name + " has moved from android.provider.Settings.Global"
+                        + " to android.provider.Settings.Secure, returning Secure URI.");
+                return Secure.getUriFor(Secure.CONTENT_URI, name);
+            }
+
             return getUriFor(CONTENT_URI, name);
         }
 

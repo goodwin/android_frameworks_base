@@ -95,6 +95,7 @@ import android.security.IKeyChainAliasCallback;
 import android.security.IKeyChainService;
 import android.security.KeyChain;
 import android.security.KeyChain.KeyChainConnection;
+import android.security.KeyStore;
 import android.service.persistentdata.PersistentDataBlockManager;
 import android.text.TextUtils;
 import android.util.Log;
@@ -4198,6 +4199,26 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
         }
     }
 
+    @Override
+    public boolean requireSecureKeyguard(int userHandle) {
+        if (!mHasFeature) {
+            return false;
+        }
+
+        int passwordQuality = getPasswordQuality(null, userHandle);
+        if (passwordQuality > DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED) {
+            return true;
+        }
+
+        int encryptionStatus = getStorageEncryptionStatus(userHandle);
+        if (encryptionStatus == DevicePolicyManager.ENCRYPTION_STATUS_ACTIVE
+                || encryptionStatus == DevicePolicyManager.ENCRYPTION_STATUS_ACTIVATING) {
+            return true;
+        }
+        final int keyguardDisabledFeatures = getKeyguardDisabledFeatures(null, userHandle);
+        return (keyguardDisabledFeatures & DevicePolicyManager.KEYGUARD_DISABLE_TRUST_AGENTS) != 0;
+    }
+
     // Returns the active device owner or null if there is no device owner.
     private ActiveAdmin getDeviceOwnerAdmin() {
         String deviceOwnerPackageName = getDeviceOwner();
@@ -4236,6 +4257,17 @@ public class DevicePolicyManagerService extends IDevicePolicyManager.Stub {
                 mDeviceOwner.clearDeviceOwner();
                 mDeviceOwner.writeOwnerFile();
                 updateDeviceOwnerLocked();
+                // Restore backup manager.
+                long ident = Binder.clearCallingIdentity();
+                try {
+                    IBackupManager ibm = IBackupManager.Stub.asInterface(
+                            ServiceManager.getService(Context.BACKUP_SERVICE));
+                    ibm.setBackupServiceActive(UserHandle.USER_OWNER, true);
+                } catch (RemoteException e) {
+                    throw new IllegalStateException("Failed activating backup service.", e);
+                } finally {
+                    Binder.restoreCallingIdentity(ident);
+                }
             }
         }
     }

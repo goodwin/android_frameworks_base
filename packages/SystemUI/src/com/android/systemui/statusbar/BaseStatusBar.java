@@ -29,6 +29,8 @@ import android.app.admin.DevicePolicyManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ApplicationInfo;
@@ -38,10 +40,12 @@ import android.content.pm.ResolveInfo;
 import android.content.pm.UserInfo;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.content.res.ThemeConfig;
 import android.database.ContentObserver;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
+import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
@@ -87,6 +91,9 @@ import com.android.internal.logging.MetricsLogger;
 import com.android.internal.statusbar.IStatusBarService;
 import com.android.internal.statusbar.StatusBarIcon;
 import com.android.internal.statusbar.StatusBarIconList;
+import com.android.internal.util.cm.SpamFilter;
+import com.android.internal.util.cm.SpamFilter.SpamContract.NotificationTable;
+import com.android.internal.util.cm.SpamFilter.SpamContract.PackageTable;
 import com.android.internal.util.NotificationColorUtil;
 import com.android.internal.widget.LockPatternUtils;
 import com.android.keyguard.KeyguardUpdateMonitor;
@@ -97,6 +104,7 @@ import com.android.systemui.SwipeHelper;
 import com.android.systemui.SystemUI;
 import com.android.systemui.assist.AssistManager;
 import com.android.systemui.recents.Recents;
+import com.android.systemui.cm.SpamMessageProvider;
 import com.android.systemui.statusbar.NotificationData.Entry;
 import com.android.systemui.statusbar.phone.NavigationBarView;
 import com.android.systemui.statusbar.phone.NotificationGroupManager;
@@ -145,6 +153,12 @@ public abstract class BaseStatusBar extends SystemUI implements
             "com.android.systemui.statusbar.banner_action_cancel";
     private static final String BANNER_ACTION_SETUP =
             "com.android.systemui.statusbar.banner_action_setup";
+
+    private static final Uri SPAM_MESSAGE_URI = new Uri.Builder()
+           .scheme(ContentResolver.SCHEME_CONTENT)
+            .authority(SpamMessageProvider.AUTHORITY)
+            .appendPath("messages")
+            .build();
 
     protected CommandQueue mCommandQueue;
     protected IStatusBarService mBarService;
@@ -237,6 +251,10 @@ public abstract class BaseStatusBar extends SystemUI implements
 
     protected AssistManager mAssistManager;
 
+    // last theme that was applied in order to detect theme change (as opposed
+    // to some other configuration change).
+    protected ThemeConfig mCurrentTheme;
+
     @Override  // NotificationData.Environment
     public boolean isDeviceProvisioned() {
         return mDeviceProvisioned;
@@ -269,6 +287,10 @@ public abstract class BaseStatusBar extends SystemUI implements
             updateNotifications();
         }
     };
+
+    public RemoteViews.OnClickHandler getOnClickHandler() {
+        return mOnClickHandler;
+    }
 
     private RemoteViews.OnClickHandler mOnClickHandler = new RemoteViews.OnClickHandler() {
         @Override
@@ -915,12 +937,31 @@ public abstract class BaseStatusBar extends SystemUI implements
         final View settingsButton = guts.findViewById(R.id.notification_inspect_item);
         final View appSettingsButton
                 = guts.findViewById(R.id.notification_inspect_app_provided_settings);
+        final View filterButton = guts.findViewById(R.id.notification_inspect_filter_notification);
         if (appUid >= 0) {
             final int appUidF = appUid;
             settingsButton.setOnClickListener(new View.OnClickListener() {
                 public void onClick(View v) {
                     MetricsLogger.action(mContext, MetricsLogger.ACTION_NOTE_INFO);
                     startAppNotificationSettingsActivity(pkg, appUidF);
+                }
+            });
+
+            filterButton.setVisibility(View.VISIBLE);
+            filterButton.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    AsyncTask.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            ContentValues values = new ContentValues();
+                            String message = SpamFilter.getNotificationContent(
+                                    sbn.getNotification());
+                            values.put(NotificationTable.MESSAGE_TEXT, message);
+                            values.put(PackageTable.PACKAGE_NAME, pkg);
+                            mContext.getContentResolver().insert(SPAM_MESSAGE_URI, values);
+                        }
+                    });
+                    removeNotification(sbn.getKey(), null);
                 }
             });
 
@@ -953,6 +994,7 @@ public abstract class BaseStatusBar extends SystemUI implements
         } else {
             settingsButton.setVisibility(View.GONE);
             appSettingsButton.setVisibility(View.GONE);
+            filterButton.setVisibility(View.GONE);
         }
 
     }
@@ -1091,26 +1133,6 @@ public abstract class BaseStatusBar extends SystemUI implements
     }
 
     protected abstract View getStatusBarView();
-
-    protected View.OnTouchListener mRecentsPreloadOnTouchListener = new View.OnTouchListener() {
-        // additional optimization when we have software system buttons - start loading the recent
-        // tasks on touch down
-        @Override
-        public boolean onTouch(View v, MotionEvent event) {
-            int action = event.getAction() & MotionEvent.ACTION_MASK;
-            if (action == MotionEvent.ACTION_DOWN) {
-                preloadRecents();
-            } else if (action == MotionEvent.ACTION_CANCEL) {
-                cancelPreloadingRecents();
-            } else if (action == MotionEvent.ACTION_UP) {
-                if (!v.isPressed()) {
-                    cancelPreloadingRecents();
-                }
-
-            }
-            return false;
-        }
-    };
 
     /** Proxy for RecentsComponent */
 
@@ -1323,22 +1345,50 @@ public abstract class BaseStatusBar extends SystemUI implements
         View contentViewLocal = null;
         View bigContentViewLocal = null;
         View headsUpContentViewLocal = null;
+        String themePackageName = mCurrentTheme != null
+                ? mCurrentTheme.getOverlayPkgNameForApp(sbn.getPackageName()) : null;
+        String statusBarThemePackageName = mCurrentTheme != null
+                ? mCurrentTheme.getOverlayForStatusBar() : null;
+
         try {
             contentViewLocal = contentView.apply(
                     sbn.getPackageContext(mContext),
                     contentContainer,
-                    mOnClickHandler);
+                    mOnClickHandler,
+                    statusBarThemePackageName);
+
+            final int platformTemplateRootViewId =
+                    com.android.internal.R.id.status_bar_latest_event_content;
+            final String inflationThemePackageName;
+            if (themePackageName != null
+                    && !TextUtils.equals(themePackageName, statusBarThemePackageName)
+                    && contentViewLocal.getId() != platformTemplateRootViewId) {
+                // This notification uses custom RemoteViews, and its app uses a different
+                // theme than the status bar. Re-inflate the views using the app's theme,
+                // as the RemoteViews likely will contain resources of the app, not the platform
+                inflationThemePackageName = themePackageName;
+                contentViewLocal = contentView.apply(
+                        sbn.getPackageContext(mContext),
+                        contentContainer,
+                        mOnClickHandler,
+                        inflationThemePackageName);
+            } else {
+                inflationThemePackageName = statusBarThemePackageName;
+            }
+
             if (bigContentView != null) {
                 bigContentViewLocal = bigContentView.apply(
                         sbn.getPackageContext(mContext),
                         contentContainer,
-                        mOnClickHandler);
+                        mOnClickHandler,
+                        inflationThemePackageName);
             }
             if (headsUpContentView != null) {
                 headsUpContentViewLocal = headsUpContentView.apply(
                         sbn.getPackageContext(mContext),
                         contentContainer,
-                        mOnClickHandler);
+                        mOnClickHandler,
+                        inflationThemePackageName);
             }
         }
         catch (RuntimeException e) {
@@ -1403,49 +1453,12 @@ public abstract class BaseStatusBar extends SystemUI implements
                 title.setText(entry.notification.getPackageName());
             }
 
-            final ImageView icon = (ImageView) publicViewLocal.findViewById(R.id.icon);
-            final ImageView profileBadge = (ImageView) publicViewLocal.findViewById(
-                    R.id.profile_badge_line3);
-
-            final StatusBarIcon ic = new StatusBarIcon(
-                    entry.notification.getUser(),
-                    entry.notification.getPackageName(),
-                    entry.notification.getNotification().getSmallIcon(),
-                    entry.notification.getNotification().iconLevel,
-                    entry.notification.getNotification().number,
-                    entry.notification.getNotification().tickerText);
-
-            Drawable iconDrawable = StatusBarIconView.getIcon(mContext, ic);
-            icon.setImageDrawable(iconDrawable);
-            if (entry.targetSdk >= Build.VERSION_CODES.LOLLIPOP
-                    || mNotificationColorUtil.isGrayscaleIcon(iconDrawable)) {
-                icon.setBackgroundResource(
-                        com.android.internal.R.drawable.notification_icon_legacy_bg);
-                int padding = mContext.getResources().getDimensionPixelSize(
-                        com.android.internal.R.dimen.notification_large_icon_circle_padding);
-                icon.setPadding(padding, padding, padding, padding);
-                if (sbn.getNotification().color != Notification.COLOR_DEFAULT) {
-                    icon.getBackground().setColorFilter(
-                            sbn.getNotification().color, PorterDuff.Mode.SRC_ATOP);
-                }
-            }
-
-            if (profileBadge != null) {
-                Drawable profileDrawable = mContext.getPackageManager().getUserBadgeForDensity(
-                        entry.notification.getUser(), 0);
-                if (profileDrawable != null) {
-                    profileBadge.setImageDrawable(profileDrawable);
-                    profileBadge.setVisibility(View.VISIBLE);
-                } else {
-                    profileBadge.setVisibility(View.GONE);
-                }
-            }
+            updatePublicViewProperties(publicViewLocal, entry);
 
             final View privateTime = contentViewLocal.findViewById(com.android.internal.R.id.time);
             final DateTimeView time = (DateTimeView) publicViewLocal.findViewById(R.id.time);
             if (privateTime != null && privateTime.getVisibility() == View.VISIBLE) {
                 time.setVisibility(View.VISIBLE);
-                time.setTime(entry.notification.getNotification().when);
             }
 
             final TextView text = (TextView) publicViewLocal.findViewById(R.id.text);
@@ -1957,7 +1970,9 @@ public abstract class BaseStatusBar extends SystemUI implements
             entry.icon.set(ic);
             inflateViews(entry, mStackScroller);
         }
-        updateHeadsUp(key, entry, shouldInterrupt, alertAgain);
+        if (mUseHeadsUp) {
+            updateHeadsUp(key, entry, shouldInterrupt, alertAgain);
+        }
         mNotificationData.updateRanking(ranking);
         updateNotifications();
 
@@ -2051,6 +2066,7 @@ public abstract class BaseStatusBar extends SystemUI implements
         final Notification publicVersion = notification.getNotification().publicVersion;
         final RemoteViews publicContentView = publicVersion != null ? publicVersion.contentView
                 : null;
+        final View publicLocalView = entry.getPublicContentView();
 
         // Reapply the RemoteViews
         contentView.reapply(mContext, entry.getContentView(), mOnClickHandler);
@@ -2064,13 +2080,18 @@ public abstract class BaseStatusBar extends SystemUI implements
             headsUpContentView.reapply(notification.getPackageContext(mContext),
                     headsUpChild, mOnClickHandler);
         }
-        if (publicContentView != null && entry.getPublicContentView() != null) {
-            publicContentView.reapply(notification.getPackageContext(mContext),
-                    entry.getPublicContentView(), mOnClickHandler);
+        if (publicLocalView != null) {
+            if (publicContentView != null) {
+                publicContentView.reapply(notification.getPackageContext(mContext),
+                        publicLocalView, mOnClickHandler);
+            } else {
+                updatePublicViewProperties(publicLocalView, entry);
+            }
         }
         // update the contentIntent
         mNotificationClicker.register(entry.row, notification);
 
+        applyColorsAndBackgrounds(notification, entry);
         entry.row.setStatusBarNotification(notification);
         entry.row.notifyContentUpdated();
         entry.row.resetHeight();
@@ -2078,6 +2099,55 @@ public abstract class BaseStatusBar extends SystemUI implements
 
     protected void notifyHeadsUpScreenOff() {
         maybeEscalateHeadsUp();
+    }
+
+    private void updatePublicViewProperties(View publicView, Entry entry) {
+        final StatusBarNotification n = entry.notification;
+        final ImageView icon = (ImageView) publicView.findViewById(R.id.icon);
+        final ImageView profileBadge =
+                (ImageView) publicView.findViewById(R.id.profile_badge_line3);
+        final DateTimeView time = (DateTimeView) publicView.findViewById(R.id.time);
+
+        if (icon != null) {
+            final StatusBarIcon ic = new StatusBarIcon(
+                    n.getUser(), n.getPackageName(),
+                    n.getNotification().getSmallIcon(),
+                    n.getNotification().iconLevel,
+                    n.getNotification().number,
+                    n.getNotification().tickerText);
+
+            Drawable iconDrawable = StatusBarIconView.getIcon(mContext, ic);
+            icon.setImageDrawable(iconDrawable);
+            if (entry.targetSdk >= Build.VERSION_CODES.LOLLIPOP
+                    || mNotificationColorUtil.isGrayscaleIcon(iconDrawable)) {
+                icon.setBackgroundResource(
+                        com.android.internal.R.drawable.notification_icon_legacy_bg);
+                int padding = mContext.getResources().getDimensionPixelSize(
+                        com.android.internal.R.dimen.notification_large_icon_circle_padding);
+                icon.setPadding(padding, padding, padding, padding);
+                if (n.getNotification().color != Notification.COLOR_DEFAULT) {
+                    icon.getBackground().setColorFilter(
+                            n.getNotification().color, PorterDuff.Mode.SRC_ATOP);
+                }
+            } else {
+                icon.setBackgroundDrawable(null);
+            }
+         }
+
+        if (time != null) {
+            time.setTime(entry.notification.getNotification().when);
+        }
+
+        if (profileBadge != null) {
+            Drawable profileDrawable = mContext.getPackageManager().getUserBadgeForDensity(
+                    n.getUser(), 0);
+            if (profileDrawable != null) {
+                profileBadge.setImageDrawable(profileDrawable);
+                profileBadge.setVisibility(View.VISIBLE);
+            } else {
+                profileBadge.setVisibility(View.GONE);
+            }
+        }
     }
 
     private boolean alertAgain(Entry oldEntry, Notification newNotification) {

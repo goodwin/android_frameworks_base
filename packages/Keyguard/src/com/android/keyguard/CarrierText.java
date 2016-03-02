@@ -39,18 +39,22 @@ import com.android.internal.telephony.IccCardConstants;
 import com.android.internal.telephony.IccCardConstants.State;
 import com.android.internal.telephony.TelephonyIntents;
 import com.android.settingslib.WirelessUtils;
+import android.telephony.TelephonyManager;
 
 public class CarrierText extends TextView {
     private static final boolean DEBUG = KeyguardConstants.DEBUG;
     private static final String TAG = "CarrierText";
 
     private static CharSequence mSeparator;
+    private static CharSequence mSubSeparator;
 
     private final boolean mIsEmergencyCallCapable;
 
     private KeyguardUpdateMonitor mKeyguardUpdateMonitor;
 
     private WifiManager mWifiManager;
+
+    private boolean[] mSimErrorState = new boolean[TelephonyManager.getDefault().getPhoneCount()];
 
     private KeyguardUpdateMonitorCallback mCallback = new KeyguardUpdateMonitorCallback() {
         @Override
@@ -65,6 +69,22 @@ public class CarrierText extends TextView {
         public void onStartedWakingUp() {
             setSelected(true);
         };
+
+        public void onSimStateChanged(int subId, int slotId, IccCardConstants.State simState) {
+            if (slotId < 0) {
+                Log.d(TAG, "onSimStateChanged() - slotId invalid: " + slotId);
+                return;
+            }
+
+            Log.d(TAG,"onSimStateChanged: " + getStatusForIccState(simState));
+            if (getStatusForIccState(simState) == StatusMode.SimIoError) {
+                mSimErrorState[slotId] = true;
+                updateCarrierText();
+            } else if (mSimErrorState[slotId]) {
+                mSimErrorState[slotId] = false;
+                updateCarrierText();
+            }
+        };
     };
     /**
      * The status of this lock screen. Primarily used for widgets on LockScreen.
@@ -77,7 +97,8 @@ public class CarrierText extends TextView {
         SimPukLocked, // SIM card is PUK locked because SIM entered wrong too many times
         SimLocked, // SIM card is currently locked
         SimPermDisabled, // SIM card is permanently disabled due to PUK unlock failure
-        SimNotReady; // SIM is not ready yet. May never be on devices w/o a SIM.
+        SimNotReady, // SIM is not ready yet. May never be on devices w/o a SIM.
+        SimIoError; //The sim card is faulty
     }
 
     public CarrierText(Context context) {
@@ -101,6 +122,35 @@ public class CarrierText extends TextView {
         mWifiManager = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
     }
 
+    /**
+     * Checks if there are faulty cards. Adds the text depending on the slot of the card
+     * @param text: current carrier text based on the sim state
+     * @param noSims: whether a valid sim card is inserted
+     * @return text
+    */
+    private CharSequence updateCarrierTextWithSimIoError(CharSequence text, boolean noSims) {
+        final CharSequence carrier = "";
+        CharSequence carrierTextForSimState = getCarrierTextForSimState(
+            IccCardConstants.State.CARD_IO_ERROR, carrier);
+        for (int index = 0; index < mSimErrorState.length; index++) {
+            if (mSimErrorState[index]) {
+                // In the case when no sim cards are detected but a faulty card is inserted
+                // overwrite the text and only show "Invalid card"
+                if (noSims) {
+                    return concatenate(carrierTextForSimState,
+                        getContext().getText(com.android.internal.R.string.emergency_calls_only));
+                } else if (index == 0) {
+                    // prepend "Invalid card" when faulty card is inserted in slot 0
+                    text = concatenate(carrierTextForSimState, text);
+                } else {
+                    // concatenate "Invalid card" when faulty card is inserted in slot 1
+                    text = concatenate(text, carrierTextForSimState);
+                }
+            }
+        }
+        return text;
+    }
+
     protected void updateCarrierText() {
         boolean allSimsMissing = true;
         boolean anySimReadyAndInService = false;
@@ -119,7 +169,7 @@ public class CarrierText extends TextView {
             }
             if (carrierTextForSimState != null) {
                 allSimsMissing = false;
-                displayText = concatenate(displayText, carrierTextForSimState);
+                displayText = concatenate(displayText, carrierTextForSimState, mSubSeparator);
             }
             if (simState == IccCardConstants.State.READY) {
                 ServiceState ss = mKeyguardUpdateMonitor.mServiceStates.get(subId);
@@ -179,6 +229,7 @@ public class CarrierText extends TextView {
             }
         }
 
+        displayText = updateCarrierTextWithSimIoError(displayText, allSimsMissing);
         // APM (airplane mode) != no carrier state. There are carrier services
         // (e.g. WFC = Wi-Fi calling) which may operate in APM.
         if (!anySimReadyAndInService && WirelessUtils.isAirplaneModeOn(mContext)) {
@@ -192,6 +243,8 @@ public class CarrierText extends TextView {
         super.onFinishInflate();
         mSeparator = getResources().getString(
                 com.android.internal.R.string.kg_text_message_separator);
+        mSubSeparator = getResources().getString(
+                com.android.internal.R.string.kg_sub_separator);
         boolean shouldMarquee = KeyguardUpdateMonitor.getInstance(mContext).isDeviceInteractive();
         setSelected(shouldMarquee); // Allow marquee to work.
     }
@@ -243,7 +296,7 @@ public class CarrierText extends TextView {
 
             case NetworkLocked:
                 carrierText = makeCarrierStringOnEmergencyCapable(
-                        mContext.getText(R.string.keyguard_network_locked_message), text);
+                        getContext().getText(R.string.keyguard_perso_locked_message), text);
                 break;
 
             case SimMissing:
@@ -268,6 +321,11 @@ public class CarrierText extends TextView {
             case SimPukLocked:
                 carrierText = makeCarrierStringOnEmergencyCapable(
                         getContext().getText(R.string.keyguard_sim_puk_locked_message),
+                        text);
+                break;
+            case SimIoError:
+                carrierText = makeCarrierStringOnEmergencyCapable(
+                        getContext().getText(R.string.lockscreen_sim_error_message_short),
                         text);
                 break;
         }
@@ -306,7 +364,7 @@ public class CarrierText extends TextView {
             case ABSENT:
                 return StatusMode.SimMissing;
             case NETWORK_LOCKED:
-                return StatusMode.SimMissingLocked;
+                return StatusMode.NetworkLocked;
             case NOT_READY:
                 return StatusMode.SimNotReady;
             case PIN_REQUIRED:
@@ -319,15 +377,22 @@ public class CarrierText extends TextView {
                 return StatusMode.SimPermDisabled;
             case UNKNOWN:
                 return StatusMode.SimMissing;
+            case CARD_IO_ERROR:
+                return StatusMode.SimIoError;
         }
         return StatusMode.SimMissing;
     }
 
     private static CharSequence concatenate(CharSequence plmn, CharSequence spn) {
+        return concatenate(plmn, spn, mSeparator);
+    }
+
+    private static CharSequence concatenate(CharSequence plmn, CharSequence spn,
+            CharSequence separator) {
         final boolean plmnValid = !TextUtils.isEmpty(plmn);
         final boolean spnValid = !TextUtils.isEmpty(spn);
         if (plmnValid && spnValid) {
-            return new StringBuilder().append(plmn).append(mSeparator).append(spn).toString();
+            return new StringBuilder().append(plmn).append(separator).append(spn).toString();
         } else if (plmnValid) {
             return plmn;
         } else if (spnValid) {

@@ -53,6 +53,8 @@ import com.android.systemui.statusbar.phone.ScrimController;
 import com.android.systemui.statusbar.policy.HeadsUpManager;
 import com.android.systemui.statusbar.policy.ScrollAdapter;
 
+import cyanogenmod.power.PerformanceManager;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 
@@ -208,6 +210,9 @@ public class NotificationStackScrollLayout extends ViewGroup
     private boolean mDelegateToScrollView;
     private boolean mDisallowScrollingInThisMotion;
     private long mGoToFullShadeDelay;
+
+    private final PerformanceManager mPerf;
+
     private ViewTreeObserver.OnPreDrawListener mChildrenUpdater
             = new ViewTreeObserver.OnPreDrawListener() {
         @Override
@@ -253,6 +258,8 @@ public class NotificationStackScrollLayout extends ViewGroup
                 minHeight, maxHeight);
         mExpandHelper.setEventSource(this);
         mExpandHelper.setScrollAdapter(this);
+
+        mPerf = PerformanceManager.getInstance(context);
 
         mSwipeHelper = new SwipeHelper(SwipeHelper.X, this, getContext());
         mSwipeHelper.setLongPressListener(mLongPressListener);
@@ -839,6 +846,11 @@ public class NotificationStackScrollLayout extends ViewGroup
                 && !mOnlyScrollingInThisMotion) {
             horizontalSwipeWantsIt = mSwipeHelper.onTouchEvent(ev);
         }
+
+        if (expandWantsIt && mIsBeingDragged) {
+            mPerf.cpuBoost(200 * 1000);
+        }
+
         return horizontalSwipeWantsIt || scrollerWantsIt || expandWantsIt || super.onTouchEvent(ev);
     }
 

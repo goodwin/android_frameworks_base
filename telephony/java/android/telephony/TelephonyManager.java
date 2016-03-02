@@ -1,4 +1,7 @@
 /*
+ * Copyright (c) 2014, The Linux Foundation. All rights reserved.
+ * Not a Contribution.
+ *
  * Copyright (C) 2008 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,10 +21,12 @@ package android.telephony;
 
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.Manifest;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.app.ActivityThread;
 import android.content.ContentResolver;
+import android.app.AppOpsManager;
 import android.content.Context;
 import android.content.Intent;
 import android.provider.Settings;
@@ -31,6 +36,7 @@ import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemProperties;
 import android.telecom.PhoneAccount;
+import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.internal.telecom.ITelecomService;
@@ -45,6 +51,7 @@ import com.android.internal.telephony.TelephonyProperties;
 
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -644,6 +651,11 @@ public class TelephonyManager {
      */
     public static final String VVM_TYPE_CVVM = "vvm_type_cvvm";
 
+    /**
+     * @hide
+     */
+    public static final String EXTRA_IS_FORWARDED = "is_forwarded";
+
     //
     //
     // Device Info
@@ -721,6 +733,7 @@ public class TelephonyManager {
      * @param slotId of which deviceID is returned
      */
     public String getDeviceId(int slotId) {
+        android.util.SeempLog.record_str(8, ""+slotId);
         // FIXME this assumes phoneId == slotId
         try {
             IPhoneSubInfo info = getSubscriberInfo();
@@ -817,6 +830,7 @@ public class TelephonyManager {
      * {@link android.Manifest.permission#ACCESS_COARSE_LOCATION ACCESS_FINE_LOCATION}.
      */
     public CellLocation getCellLocation() {
+        android.util.SeempLog.record(49);
         try {
             ITelephony telephony = getITelephony();
             if (telephony == null) {
@@ -914,6 +928,7 @@ public class TelephonyManager {
      */
     @Deprecated
     public List<NeighboringCellInfo> getNeighboringCellInfo() {
+        android.util.SeempLog.record(50);
         try {
             ITelephony telephony = getITelephony();
             if (telephony == null)
@@ -1164,6 +1179,15 @@ public class TelephonyManager {
         return retVal;
     }
 
+    /**
+     * Return if the current radio is LTE on GSM
+     * @hide
+     */
+    public static int getLteOnGsmModeStatic() {
+        return SystemProperties.getInt(TelephonyProperties.PROPERTY_LTE_ON_GSM_DEVICE,
+                    0);
+    }
+
     //
     //
     // Current Network
@@ -1340,11 +1364,12 @@ public class TelephonyManager {
     public static final int NETWORK_TYPE_HSPAP = 15;
     /** Current network is GSM {@hide} */
     public static final int NETWORK_TYPE_GSM = 16;
-     /** Current network is TD_SCDMA {@hide} */
+    /** Current network is TD_SCDMA {@hide} */
     public static final int NETWORK_TYPE_TD_SCDMA = 17;
    /** Current network is IWLAN {@hide} */
     public static final int NETWORK_TYPE_IWLAN = 18;
-
+    /** Current network is LTE_CA {@hide} */
+    public static final int NETWORK_TYPE_LTE_CA = 19;
     /**
      * @return the NETWORK_TYPE_xxxx for current data connection.
      */
@@ -1389,10 +1414,12 @@ public class TelephonyManager {
      * @see #NETWORK_TYPE_LTE
      * @see #NETWORK_TYPE_EHRPD
      * @see #NETWORK_TYPE_HSPAP
+     * @see #NETWORK_TYPE_TD_SCDMA
      *
      * <p>
      * Requires Permission:
      *   {@link android.Manifest.permission#READ_PHONE_STATE READ_PHONE_STATE}
+     * @hide
      */
     /** {@hide} */
    public int getNetworkType(int subId) {
@@ -1512,6 +1539,21 @@ public class TelephonyManager {
         }
     }
 
+    /**
+     * Returns the icc operator numeric for a given subId
+     *
+     */
+    /** {@hide} */
+    public String getIccOperatorNumericForData(int subId) {
+       try{
+            return getITelephony().getIccOperatorNumericForData(subId);
+       } catch (RemoteException ex) {
+           return null;
+       } catch (NullPointerException ex) {
+           return null;
+       }
+    }
+
     /** Unknown network class. {@hide} */
     public static final int NETWORK_CLASS_UNKNOWN = 0;
     /** Class of broadly defined "2G" networks. {@hide} */
@@ -1549,6 +1591,7 @@ public class TelephonyManager {
                 return NETWORK_CLASS_3_G;
             case NETWORK_TYPE_LTE:
             case NETWORK_TYPE_IWLAN:
+            case NETWORK_TYPE_LTE_CA:
                 return NETWORK_CLASS_4_G;
             default:
                 return NETWORK_CLASS_UNKNOWN;
@@ -1612,6 +1655,8 @@ public class TelephonyManager {
                 return "TD_SCDMA";
             case NETWORK_TYPE_IWLAN:
                 return "IWLAN";
+            case NETWORK_TYPE_LTE_CA:
+                return "LTE_CA";
             default:
                 return "UNKNOWN";
         }
@@ -1917,6 +1962,7 @@ public class TelephonyManager {
      */
     /** {@hide} */
     public String getSimSerialNumber(int subId) {
+        android.util.SeempLog.record_str(388, ""+subId);
         try {
             IPhoneSubInfo info = getSubscriberInfo();
             if (info == null)
@@ -1977,6 +2023,21 @@ public class TelephonyManager {
         }
     }
 
+    /**
+     * Return if the current radio is LTE on GSM
+     * @hide
+     */
+    public int getLteOnGsmMode() {
+        try {
+            return getITelephony().getLteOnGsmMode();
+        } catch (RemoteException ex) {
+            return 0;
+        } catch (NullPointerException ex) {
+            // This could happen before phone restarts due to crashing
+            return 0;
+        }
+    }
+
     //
     //
     // Subscriber Info
@@ -2006,6 +2067,7 @@ public class TelephonyManager {
      */
     /** {@hide} */
     public String getSubscriberId(int subId) {
+        android.util.SeempLog.record_str(389, ""+subId);
         try {
             IPhoneSubInfo info = getSubscriberInfo();
             if (info == null)
@@ -2094,6 +2156,7 @@ public class TelephonyManager {
      */
     /** {@hide} */
     public String getLine1NumberForSubscriber(int subId) {
+        android.util.SeempLog.record_str(9, ""+subId);
         String number = null;
         try {
             ITelephony telephony = getITelephony();
@@ -2891,6 +2954,40 @@ public class TelephonyManager {
     }
 
     /**
+     * Allows an application to add a protected sms address if the application has
+     * been granted the permission MODIFY_PROTECTED_SMS_LIST.
+     * @param address
+     * @hide
+     */
+    public void addProtectedSmsAddress(String address) {
+        mContext.enforceCallingOrSelfPermission(
+                Manifest.permission.MODIFY_PROTECTED_SMS_LIST, null);
+        try {
+            getITelephony().addProtectedSmsAddress(address);
+        } catch (RemoteException ex) {
+        } catch (NullPointerException ex) {
+        }
+    }
+
+    /**
+     * Allows an application to revoke/remove a protected sms address if the application has been
+     * granted the permission MODIFY_PROTECTED_SMS_LIST.
+     * @param address
+     * @return true if address is successfully removed
+     * @hide
+     */
+    public boolean revokeProtectedSmsAddress(String address) {
+        mContext.enforceCallingOrSelfPermission(
+                Manifest.permission.MODIFY_PROTECTED_SMS_LIST, null);
+        try {
+            return getITelephony().revokeProtectedSmsAddress(address);
+        } catch (RemoteException ex) {
+        } catch (NullPointerException ex) {
+        }
+        return false;
+    }
+
+    /**
      * Returns the MMS user agent.
      */
     public String getMmsUserAgent() {
@@ -3356,13 +3453,7 @@ public class TelephonyManager {
 
     /** @hide */
     public int getSimCount() {
-        // FIXME Need to get it from Telephony Dev Controller when that gets implemented!
-        // and then this method shouldn't be used at all!
-        if(isMultiSimEnabled()) {
-            return 2;
-        } else {
-            return 1;
-        }
+        return getPhoneCount();
     }
 
     /**
@@ -4158,11 +4249,18 @@ public class TelephonyManager {
     public void setDataEnabled(int subId, boolean enable) {
         try {
             Log.d(TAG, "setDataEnabled: enabled=" + enable);
+            AppOpsManager appOps = (AppOpsManager)mContext.getSystemService(Context.APP_OPS_SERVICE);
+            if (enable) {
+                if (appOps.noteOp(AppOpsManager.OP_DATA_CONNECT_CHANGE) != AppOpsManager.MODE_ALLOWED) {
+                    Log.w(TAG, "Permission denied by user.");
+                    return;
+                }
+            }
             ITelephony telephony = getITelephony();
             if (telephony != null)
                 telephony.setDataEnabled(subId, enable);
         } catch (RemoteException e) {
-            Log.e(TAG, "Error calling ITelephony#setDataEnabled", e);
+            Log.e(TAG, "Error calling setDataEnabled", e);
         }
     }
 

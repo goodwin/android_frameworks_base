@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
+ * Copyright (C) 2015 The CyanogenMod Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +17,13 @@
 
 package com.android.systemui.qs.tiles;
 
+import android.app.ActivityManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Resources;
+import android.os.UserHandle;
+import android.telephony.TelephonyManager;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -35,15 +39,23 @@ import com.android.systemui.statusbar.policy.NetworkController.MobileDataControl
 import com.android.systemui.statusbar.policy.NetworkController.MobileDataController.DataUsageInfo;
 import com.android.systemui.statusbar.policy.NetworkController.SignalCallback;
 import com.android.systemui.statusbar.policy.SignalCallbackAdapter;
+import cyanogenmod.app.StatusBarPanelCustomTile;
 
 /** Quick settings tile: Cellular **/
 public class CellularTile extends QSTile<QSTile.SignalState> {
-    private static final Intent CELLULAR_SETTINGS = new Intent().setComponent(new ComponentName(
+
+    private static final Intent DATA_USAGE_SETTINGS = new Intent().setComponent(new ComponentName(
             "com.android.settings", "com.android.settings.Settings$DataUsageSummaryActivity"));
+    private static final Intent MOBILE_NETWORK_SETTINGS = new Intent(Intent.ACTION_MAIN)
+            .setComponent(new ComponentName("com.android.phone",
+                    "com.android.phone.MobileNetworkSettings"));
+    private static final Intent MOBILE_NETWORK_SETTINGS_MSIM
+            = new Intent("com.android.settings.sim.SIM_SUB_INFO_SETTINGS");
 
     private final NetworkController mController;
     private final MobileDataController mDataController;
     private final CellularDetailAdapter mDetailAdapter;
+    private final TelephonyManager mTelephonyManager;
 
     private final CellSignalCallback mSignalCallback = new CellSignalCallback();
 
@@ -52,6 +64,7 @@ public class CellularTile extends QSTile<QSTile.SignalState> {
         mController = host.getNetworkController();
         mDataController = mController.getMobileDataController();
         mDetailAdapter = new CellularDetailAdapter();
+        mTelephonyManager = (TelephonyManager) mContext.getSystemService(Context.TELEPHONY_SERVICE);
     }
 
     @Override
@@ -79,18 +92,40 @@ public class CellularTile extends QSTile<QSTile.SignalState> {
     }
 
     @Override
+    protected void handleUserSwitch(int newUserId) {
+        if (newUserId != UserHandle.USER_OWNER) {
+            refreshState();
+        }
+    }
+
+    @Override
     protected void handleClick() {
         MetricsLogger.action(mContext, getMetricsCategory());
         if (mDataController.isMobileDataSupported()) {
             showDetail(true);
         } else {
-            mHost.startActivityDismissingKeyguard(CELLULAR_SETTINGS);
+            mHost.startActivityDismissingKeyguard(DATA_USAGE_SETTINGS);
+        }
+    }
+
+    @Override
+    protected void handleSecondaryClick() {
+        handleClick();
+    }
+
+    @Override
+    protected void handleLongClick() {
+        if (mTelephonyManager.getDefault().getPhoneCount() > 1) {
+            mHost.startActivityDismissingKeyguard(MOBILE_NETWORK_SETTINGS_MSIM);
+        } else {
+            mHost.startActivityDismissingKeyguard(MOBILE_NETWORK_SETTINGS);
         }
     }
 
     @Override
     protected void handleUpdateState(SignalState state, Object arg) {
-        state.visible = mController.hasMobileDataFeature();
+        state.visible = mController.hasMobileDataFeature()
+                && (ActivityManager.getCurrentUser() == UserHandle.USER_OWNER);
         if (!state.visible) return;
         CallbackInfo cb = (CallbackInfo) arg;
         if (cb == null) {
@@ -131,6 +166,11 @@ public class CellularTile extends QSTile<QSTile.SignalState> {
         return MetricsLogger.QS_CELLULAR;
     }
 
+    @Override
+    public boolean hasDualTargetsDetails() {
+        return true;
+    }
+
     // Remove the period from the network name
     public static String removeTrailingPeriod(String string) {
         if (string == null) return null;
@@ -168,7 +208,7 @@ public class CellularTile extends QSTile<QSTile.SignalState> {
         @Override
         public void setMobileDataIndicators(IconState statusIcon, IconState qsIcon, int statusType,
                 int qsType, boolean activityIn, boolean activityOut, String typeContentDescription,
-                String description, boolean isWide, int subId) {
+                String description, boolean isWide, boolean showSeparateRoaming, int subId) {
             if (qsIcon == null) {
                 // Not data sim, don't display.
                 return;
@@ -214,6 +254,10 @@ public class CellularTile extends QSTile<QSTile.SignalState> {
     };
 
     private final class CellularDetailAdapter implements DetailAdapter {
+        @Override
+        public StatusBarPanelCustomTile getCustomTile() {
+            return null;
+        }
 
         @Override
         public int getTitle() {
@@ -229,7 +273,7 @@ public class CellularTile extends QSTile<QSTile.SignalState> {
 
         @Override
         public Intent getSettingsIntent() {
-            return CELLULAR_SETTINGS;
+            return DATA_USAGE_SETTINGS;
         }
 
         @Override

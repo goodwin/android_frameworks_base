@@ -245,6 +245,10 @@ public class NetworkControllerImpl extends BroadcastReceiver
         mCallbackHandler.setEmergencyCallsOnly(isEmergencyOnly());
     }
 
+    public void removeEmergencyListener(EmergencyListener listener) {
+        mCallbackHandler.setListening(listener, false);
+    }
+
     public boolean hasMobileDataFeature() {
         return mHasMobileDataFeature;
     }
@@ -751,9 +755,11 @@ public class NetworkControllerImpl extends BroadcastReceiver
                             datatype.equals("1x") ? TelephonyIcons.ONE_X :
                             datatype.equals("3g") ? TelephonyIcons.THREE_G :
                             datatype.equals("4g") ? TelephonyIcons.FOUR_G :
+                            datatype.equals("4g+") ? TelephonyIcons.FOUR_G_PLUS :
                             datatype.equals("e") ? TelephonyIcons.E :
                             datatype.equals("g") ? TelephonyIcons.G :
                             datatype.equals("h") ? TelephonyIcons.H :
+                            datatype.equals("h+") ? TelephonyIcons.HP :
                             datatype.equals("lte") ? TelephonyIcons.LTE :
                             datatype.equals("roam") ? TelephonyIcons.ROAMING :
                             TelephonyIcons.UNKNOWN;
@@ -780,7 +786,7 @@ public class NetworkControllerImpl extends BroadcastReceiver
 
     private SubscriptionInfo addSignalController(int id, int simSlotIndex) {
         SubscriptionInfo info = new SubscriptionInfo(id, "", simSlotIndex, "", "", 0, 0, "", 0,
-                null, 0, 0, "");
+                null, 0, 0, "", 0);
         mMobileSignalControllers.put(id, new MobileSignalController(mContext,
                 mConfig, mHasMobileDataFeature, mPhone, mCallbackHandler, this, info,
                 mSubDefaults, mReceiverHandler.getLooper()));
@@ -825,6 +831,7 @@ public class NetworkControllerImpl extends BroadcastReceiver
         boolean alwaysShowCdmaRssi = false;
         boolean show4gForLte = false;
         boolean hspaDataDistinguishable;
+        boolean showRsrpSignalLevelforLTE;
 
         static Config readConfig(Context context) {
             Config config = new Config();
@@ -836,6 +843,8 @@ public class NetworkControllerImpl extends BroadcastReceiver
             config.show4gForLte = res.getBoolean(R.bool.config_show4GForLTE);
             config.hspaDataDistinguishable =
                     res.getBoolean(R.bool.config_hspa_data_distinguishable);
+            config.showRsrpSignalLevelforLTE =
+                    res.getBoolean(R.bool.config_showRsrpSignalLevelforLTE);
             return config;
         }
     }

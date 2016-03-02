@@ -25,6 +25,7 @@ import static com.android.server.am.ActivityRecord.APPLICATION_ACTIVITY_TYPE;
 
 import static com.android.server.am.ActivityStackSupervisor.HOME_STACK_ID;
 
+import android.text.TextUtils;
 import android.util.ArraySet;
 import com.android.internal.app.IVoiceInteractor;
 import com.android.internal.content.ReferrerIntent;
@@ -40,6 +41,7 @@ import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.ActivityOptions;
 import android.app.AppGlobals;
+import android.app.AppOpsManager;
 import android.app.IActivityController;
 import android.app.ResultInfo;
 import android.app.ActivityManager.RunningTaskInfo;
@@ -66,6 +68,11 @@ import android.service.voice.IVoiceInteractionSession;
 import android.util.EventLog;
 import android.util.Slog;
 import android.view.Display;
+
+import com.android.server.LocalServices;
+
+import cyanogenmod.power.PerformanceManagerInternal;
+import cyanogenmod.providers.CMSettings;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -264,6 +271,10 @@ final class ActivityStack {
         }
     }
 
+    private final PerformanceManagerInternal mPerf;
+    private static final String PROTECTED_APPS_TARGET_VALIDATION_COMPONENT =
+            "com.android.settings/com.android.settings.applications.ProtectedAppsActivity";
+
     final Handler mHandler;
 
     final class ActivityStackHandler extends Handler {
@@ -362,6 +373,7 @@ final class ActivityStack {
         mCurrentUser = mService.mCurrentUserId;
         mRecentTasks = recentTasks;
         mOverrideConfig = Configuration.EMPTY;
+        mPerf = LocalServices.getService(PerformanceManagerInternal.class);
     }
 
     boolean okToShowLocked(ActivityRecord r) {
@@ -941,10 +953,13 @@ final class ActivityStack {
                         r.userId, System.identityHashCode(r), r.shortComponentName,
                         mPausingActivity != null
                             ? mPausingActivity.shortComponentName : "(none)");
-                if (r.finishing && r.state == ActivityState.PAUSING) {
-                    if (DEBUG_PAUSE) Slog.v(TAG,
-                            "Executing finish of failed to pause activity: " + r);
-                    finishCurrentActivityLocked(r, FINISH_AFTER_VISIBLE, false);
+                if (r.state == ActivityState.PAUSING) {
+                    r.state = ActivityState.PAUSED;
+                    if (r.finishing) {
+                        if (DEBUG_PAUSE) Slog.v(TAG,
+                                "Executing finish of failed to pause activity: " + r);
+                        finishCurrentActivityLocked(r, FINISH_AFTER_VISIBLE, false);
+                    }
                 }
             }
         }
@@ -1130,6 +1145,9 @@ final class ActivityStack {
             // When resuming an activity, require it to call requestVisibleBehind() again.
             mActivityContainer.mActivityDisplay.setVisibleBehindActivity(null);
         }
+
+        updatePrivacyGuardNotificationLocked(next);
+        updateProtectedAppNotificationLocked(next);
     }
 
     private void setVisible(ActivityRecord r, boolean visible) {
@@ -1682,6 +1700,11 @@ final class ActivityStack {
 
         if (DEBUG_SWITCH) Slog.v(TAG_SWITCH, "Resuming " + next);
 
+        // Some activities may want to alter the system power management
+        if (mStackSupervisor.mPerf != null) {
+            mStackSupervisor.mPerf.activityResumed(next.intent);
+        }
+        
         // If we are currently pausing an activity, then don't do anything
         // until that is done.
         if (!mStackSupervisor.allPausedActivitiesComplete()) {
@@ -1814,6 +1837,11 @@ final class ActivityStack {
                     mWindowManager.prepareAppTransition(prev.task == next.task
                             ? AppTransition.TRANSIT_ACTIVITY_CLOSE
                             : AppTransition.TRANSIT_TASK_CLOSE, false);
+                    if (prev.task != next.task) {
+                        if (mStackSupervisor.mPerf != null) {
+                            mStackSupervisor.mPerf.cpuBoost(2000 * 1000);
+                        }
+                    }
                 }
                 mWindowManager.setAppWillBeHidden(prev.appToken);
                 mWindowManager.setAppVisibility(prev.appToken, false);
@@ -1829,6 +1857,11 @@ final class ActivityStack {
                             : next.mLaunchTaskBehind
                                     ? AppTransition.TRANSIT_TASK_OPEN_BEHIND
                                     : AppTransition.TRANSIT_TASK_OPEN, false);
+                    if (prev.task != next.task) {
+                        if (mStackSupervisor.mPerf != null) {
+                            mStackSupervisor.mPerf.cpuBoost(2000 * 1000);
+                        }
+                    }
                 }
             }
             if (false) {
@@ -2069,6 +2102,42 @@ final class ActivityStack {
         }
         mTaskHistory.add(taskNdx, task);
         updateTaskMovement(task, true);
+    }
+
+    private final void updateProtectedAppNotificationLocked(ActivityRecord next) {
+        ComponentName componentName = ComponentName.unflattenFromString(next.shortComponentName);
+        if (TextUtils.equals(componentName.flattenToString(),
+                PROTECTED_APPS_TARGET_VALIDATION_COMPONENT)) {
+            Message msg = mService.mHandler.obtainMessage(
+                    ActivityManagerService.CANCEL_PROTECTED_APP_NOTIFICATION, next);
+            msg.sendToTarget();
+        }
+    }
+
+    private final void updatePrivacyGuardNotificationLocked(ActivityRecord next) {
+
+        String privacyGuardPackageName = mStackSupervisor.mPrivacyGuardPackageName;
+        if (privacyGuardPackageName != null && privacyGuardPackageName.equals(next.packageName)) {
+            return;
+        }
+
+        boolean privacy = mService.mAppOpsService.getPrivacyGuardSettingForPackage(
+                next.app.uid, next.packageName);
+        boolean privacyNotification = (CMSettings.Secure.getInt(
+                mService.mContext.getContentResolver(),
+                CMSettings.Secure.PRIVACY_GUARD_NOTIFICATION, 1) == 1);
+
+        if (privacyGuardPackageName != null && !privacy) {
+            Message msg = mService.mHandler.obtainMessage(
+                    ActivityManagerService.CANCEL_PRIVACY_NOTIFICATION_MSG, next.userId);
+            msg.sendToTarget();
+            mStackSupervisor.mPrivacyGuardPackageName = null;
+        } else if (privacy && privacyNotification) {
+            Message msg = mService.mHandler.obtainMessage(
+                    ActivityManagerService.POST_PRIVACY_NOTIFICATION_MSG, next);
+            msg.sendToTarget();
+            mStackSupervisor.mPrivacyGuardPackageName = next.packageName;
+        }
     }
 
     final void startActivityLocked(ActivityRecord r, boolean newTask,
@@ -2620,7 +2689,23 @@ final class ActivityStack {
             final String myReason = reason + " adjustFocus";
             if (next != r) {
                 final TaskRecord task = r.task;
-                if (r.frontOfTask && task == topTask() && task.isOverHomeStack()) {
+                boolean adjust = false;
+                if ((next == null || next.task != task) && r.frontOfTask) {
+                    if (task.isOverHomeStack() && task == topTask()) {
+                        adjust = true;
+                    } else {
+                        for (int taskNdx = mTaskHistory.size() - 1; taskNdx >= 0; --taskNdx) {
+                            final TaskRecord tr = mTaskHistory.get(taskNdx);
+                            if (tr.getTopActivity() != null) {
+                                break;
+                            } else if (tr.isOverHomeStack()) {
+                                adjust = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (adjust) {
                     // For non-fullscreen stack, we want to move the focus to the next visible
                     // stack to prevent the home screen from moving to the top and obscuring
                     // other visible stacks.

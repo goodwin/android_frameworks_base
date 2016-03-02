@@ -48,6 +48,7 @@ import com.android.systemui.recents.views.DebugOverlayView;
 import com.android.systemui.recents.views.RecentsView;
 import com.android.systemui.recents.views.SystemBarScrimViews;
 import com.android.systemui.recents.views.ViewAnimation;
+import cyanogenmod.providers.CMSettings;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -215,9 +216,7 @@ public class RecentsActivity extends Activity implements RecentsView.RecentsView
 
         ArrayList<TaskStack> stacks = plan.getAllTaskStacks();
         mConfig.launchedWithNoRecentTasks = !plan.hasTasks();
-        if (!mConfig.launchedWithNoRecentTasks) {
-            mRecentsView.setTaskStacks(stacks);
-        }
+        mRecentsView.setTaskStacks(stacks);
 
         // Create the home intent runnable
         Intent homeIntent = new Intent(Intent.ACTION_MAIN, null);
@@ -226,10 +225,8 @@ public class RecentsActivity extends Activity implements RecentsView.RecentsView
                 Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
         mFinishLaunchHomeRunnable = new FinishRecentsRunnable(homeIntent,
             ActivityOptions.makeCustomAnimation(this,
-                mConfig.launchedFromSearchHome ? R.anim.recents_to_search_launcher_enter :
-                        R.anim.recents_to_launcher_enter,
-                    mConfig.launchedFromSearchHome ? R.anim.recents_to_search_launcher_exit :
-                        R.anim.recents_to_launcher_exit));
+                 R.anim.recents_to_search_launcher_enter,
+                    R.anim.recents_to_search_launcher_exit));
 
         // Mark the task that is the launch target
         int taskStackCount = stacks.size();
@@ -259,11 +256,22 @@ public class RecentsActivity extends Activity implements RecentsView.RecentsView
             if (Constants.DebugFlags.App.EnableSearchBar) {
                 mRecentsView.setSearchBarVisibility(View.GONE);
             }
+            mEmptyView.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    dismissRecentsToHome(true);
+                }
+            });
+            mRecentsView.setSearchBarVisibility(View.GONE);
         } else {
             if (mEmptyView != null) {
                 mEmptyView.setVisibility(View.GONE);
+                mEmptyView.setOnClickListener(null);
             }
             if (Constants.DebugFlags.App.EnableSearchBar) {
+            if (!mConfig.searchBarEnabled) {
+                mRecentsView.setSearchBarVisibility(View.GONE);
+            } else {
                 if (mRecentsView.hasValidSearchBar()) {
                     mRecentsView.setSearchBarVisibility(View.VISIBLE);
                 } else {
@@ -447,6 +455,14 @@ public class RecentsActivity extends Activity implements RecentsView.RecentsView
         if (!mConfig.launchedHasConfigurationChanged) {
             mRecentsView.disableLayersForOneFrame();
         }
+    }
+
+    @Override
+    protected void onResume() {
+        if (mConfig.searchBarEnabled && mConfig.launchedFromHome) {
+            overridePendingTransition(0, 0);
+        }
+        super.onResume();
     }
 
     @Override

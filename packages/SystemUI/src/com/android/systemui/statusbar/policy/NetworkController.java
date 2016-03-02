@@ -40,7 +40,7 @@ public interface NetworkController {
 
         void setMobileDataIndicators(IconState statusIcon, IconState qsIcon, int statusType,
                 int qsType, boolean activityIn, boolean activityOut, String typeContentDescription,
-                String description, boolean isWide, int subId);
+                String description, boolean isWide, boolean showSeparateRoaming, int subId);
         void setSubs(List<SubscriptionInfo> subs);
         void setNoSims(boolean show);
 
@@ -82,7 +82,7 @@ public interface NetworkController {
 
         public interface AccessPointCallback {
             void onAccessPointsChanged(List<AccessPoint> accessPoints);
-            void onSettingsActivityTriggered(Intent settingsIntent);
+            void onSettingsActivityTriggered(Intent intent);
         }
     }
 

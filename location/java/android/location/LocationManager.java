@@ -456,6 +456,7 @@ public class LocationManager {
     @RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
     public void requestLocationUpdates(String provider, long minTime, float minDistance,
             LocationListener listener) {
+        android.util.SeempLog.record(47);
         checkProvider(provider);
         checkListener(listener);
 
@@ -488,6 +489,7 @@ public class LocationManager {
     @RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
     public void requestLocationUpdates(String provider, long minTime, float minDistance,
             LocationListener listener, Looper looper) {
+        android.util.SeempLog.record(47);
         checkProvider(provider);
         checkListener(listener);
 
@@ -521,6 +523,7 @@ public class LocationManager {
     @RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
     public void requestLocationUpdates(long minTime, float minDistance, Criteria criteria,
             LocationListener listener, Looper looper) {
+        android.util.SeempLog.record(47);
         checkCriteria(criteria);
         checkListener(listener);
 
@@ -549,6 +552,7 @@ public class LocationManager {
     @RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
     public void requestLocationUpdates(String provider, long minTime, float minDistance,
             PendingIntent intent) {
+        android.util.SeempLog.record(47);
         checkProvider(provider);
         checkPendingIntent(intent);
 
@@ -651,6 +655,7 @@ public class LocationManager {
     @RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
     public void requestLocationUpdates(long minTime, float minDistance, Criteria criteria,
             PendingIntent intent) {
+        android.util.SeempLog.record(47);
         checkCriteria(criteria);
         checkPendingIntent(intent);
 
@@ -680,6 +685,7 @@ public class LocationManager {
      */
     @RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
     public void requestSingleUpdate(String provider, LocationListener listener, Looper looper) {
+        android.util.SeempLog.record(64);
         checkProvider(provider);
         checkListener(listener);
 
@@ -710,6 +716,7 @@ public class LocationManager {
      */
     @RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
     public void requestSingleUpdate(Criteria criteria, LocationListener listener, Looper looper) {
+        android.util.SeempLog.record(64);
         checkCriteria(criteria);
         checkListener(listener);
 
@@ -733,6 +740,7 @@ public class LocationManager {
      */
     @RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
     public void requestSingleUpdate(String provider, PendingIntent intent) {
+        android.util.SeempLog.record(64);
         checkProvider(provider);
         checkPendingIntent(intent);
 
@@ -757,6 +765,7 @@ public class LocationManager {
      */
     @RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
     public void requestSingleUpdate(Criteria criteria, PendingIntent intent) {
+        android.util.SeempLog.record(64);
         checkCriteria(criteria);
         checkPendingIntent(intent);
 
@@ -825,6 +834,7 @@ public class LocationManager {
     @SystemApi
     public void requestLocationUpdates(LocationRequest request, LocationListener listener,
             Looper looper) {
+        android.util.SeempLog.record(47);
         checkListener(listener);
         requestLocationUpdates(request, listener, looper, null);
     }
@@ -852,6 +862,7 @@ public class LocationManager {
      */
     @SystemApi
     public void requestLocationUpdates(LocationRequest request, PendingIntent intent) {
+        android.util.SeempLog.record(47);
         checkPendingIntent(intent);
         requestLocationUpdates(request, null, null, intent);
     }
@@ -870,6 +881,7 @@ public class LocationManager {
 
     private void requestLocationUpdates(LocationRequest request, LocationListener listener,
             Looper looper, PendingIntent intent) {
+        android.util.SeempLog.record(47);
 
         String packageName = mContext.getPackageName();
 
@@ -978,6 +990,7 @@ public class LocationManager {
     @RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
     public void addProximityAlert(double latitude, double longitude, float radius, long expiration,
             PendingIntent intent) {
+        android.util.SeempLog.record(45);
         checkPendingIntent(intent);
         if (expiration < 0) expiration = Long.MAX_VALUE;
 
@@ -1191,6 +1204,7 @@ public class LocationManager {
      */
     @RequiresPermission(anyOf = {ACCESS_COARSE_LOCATION, ACCESS_FINE_LOCATION})
     public Location getLastKnownLocation(String provider) {
+        android.util.SeempLog.record(46);
         checkProvider(provider);
         String packageName = mContext.getPackageName();
         LocationRequest request = LocationRequest.createFromDeprecatedProvider(
@@ -1511,6 +1525,7 @@ public class LocationManager {
      */
     @RequiresPermission(ACCESS_FINE_LOCATION)
     public boolean addGpsStatusListener(GpsStatus.Listener listener) {
+        android.util.SeempLog.record(43);
         boolean result;
 
         if (mGpsStatusListeners.get(listener) != null) {
@@ -1558,6 +1573,7 @@ public class LocationManager {
      */
     @RequiresPermission(ACCESS_FINE_LOCATION)
     public boolean addNmeaListener(GpsStatus.NmeaListener listener) {
+        android.util.SeempLog.record(44);
         boolean result;
 
         if (mNmeaListeners.get(listener) != null) {
@@ -1676,6 +1692,7 @@ public class LocationManager {
      * @return true if the command succeeds.
      */
     public boolean sendExtraCommand(String provider, String command, Bundle extras) {
+        android.util.SeempLog.record(48);
         try {
             return mService.sendExtraCommand(provider, command, extras);
         } catch (RemoteException e) {

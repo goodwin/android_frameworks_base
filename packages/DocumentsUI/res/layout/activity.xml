@@ -29,7 +29,7 @@
             android:layout_width="match_parent"
             android:layout_height="?android:attr/actionBarSize"
             android:background="?android:attr/colorPrimary"
-            android:elevation="8dp"
+            android:elevation="@dimen/toolbar_elevation"
             android:theme="?android:attr/actionBarTheme">
 
             <Spinner
@@ -63,7 +63,7 @@
         android:layout_gravity="start"
         android:orientation="vertical"
         android:elevation="16dp"
-        android:background="@*android:color/white">
+        android:background="@color/drawer_background_color">
 
         <Toolbar
             android:id="@+id/roots_toolbar"

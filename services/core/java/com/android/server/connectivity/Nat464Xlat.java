@@ -31,6 +31,7 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.INetworkManagementService;
 import android.os.RemoteException;
+import android.os.SystemProperties;
 import android.util.Slog;
 
 import com.android.server.net.BaseNetworkObserver;
@@ -90,7 +91,12 @@ public class Nat464Xlat extends BaseNetworkObserver {
                 (nai.linkProperties != null) ? nai.linkProperties.hasIPv4Address() : false;
         // Only support clat on mobile and wifi for now, because these are the only IPv6-only
         // networks we can connect to.
-        return connected && !hasIPv4Address && (netType == TYPE_MOBILE || netType == TYPE_WIFI);
+        boolean doXlat = SystemProperties.getBoolean("persist.net.doxlat",true);
+        if(!doXlat) {
+            Slog.i(TAG, "Android Xlat is disabled");
+        }
+        return connected && !hasIPv4Address && (((netType == TYPE_MOBILE) && doXlat )
+                                              || netType == TYPE_WIFI);
     }
 
     /**
@@ -125,6 +131,7 @@ public class Nat464Xlat extends BaseNetworkObserver {
         }
 
         try {
+            mNMService.unregisterObserver(this);
             mNMService.registerObserver(this);
         } catch(RemoteException e) {
             Slog.e(TAG, "startClat: Can't register interface observer for clat on " + mNetwork);
@@ -233,16 +240,12 @@ public class Nat464Xlat extends BaseNetworkObserver {
     }
 
     @Override
-    public void interfaceLinkStateChanged(String iface, boolean up) {
+    public void addressUpdated(String iface, LinkAddress clatAddress) {
         // Called by the InterfaceObserver on its own thread, so can race with stop().
-        if (isStarted() && up && mIface.equals(iface)) {
+        if (isStarted() && mIface.equals(iface) && clatAddress != null) {
             Slog.i(TAG, "interface " + iface + " is up, mIsRunning " + mIsRunning + "->true");
 
             if (!mIsRunning) {
-                LinkAddress clatAddress = getLinkAddress(iface);
-                if (clatAddress == null) {
-                    return;
-                }
                 mIsRunning = true;
                 maybeSetIpv6NdOffload(mBaseIface, false);
                 LinkProperties lp = new LinkProperties(mNetwork.linkProperties);

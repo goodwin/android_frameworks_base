@@ -101,12 +101,12 @@ import android.util.ArraySet;
 import android.util.EventLog;
 import android.util.Slog;
 import android.util.SparseArray;
-
 import android.util.SparseIntArray;
 import android.view.Display;
 import android.view.DisplayInfo;
 import android.view.InputEvent;
 import android.view.Surface;
+
 import com.android.internal.app.HeavyWeightSwitcherActivity;
 import com.android.internal.app.IVoiceInteractor;
 import com.android.internal.content.ReferrerIntent;
@@ -118,6 +118,7 @@ import com.android.server.LocalServices;
 import com.android.server.am.ActivityStack.ActivityState;
 import com.android.server.wm.WindowManagerService;
 
+import cyanogenmod.power.PerformanceManagerInternal;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
@@ -273,6 +274,15 @@ public final class ActivityStackSupervisor implements DisplayListener {
      * setWindowManager is called. **/
     private boolean mLeanbackOnlyDevice;
 
+    PowerManager mPm;
+
+    PerformanceManagerInternal mPerf;
+
+    /**
+     * Is the privacy guard currently enabled? Shared between ActivityStacks
+     */
+    String mPrivacyGuardPackageName = null;
+
     /**
      * We don't want to allow the device to go to sleep while in the process
      * of launching an activity.  This is primarily to allow alarm intent
@@ -344,14 +354,25 @@ public final class ActivityStackSupervisor implements DisplayListener {
         mHandler = new ActivityStackSupervisorHandler(mService.mHandler.getLooper());
     }
 
+    private void launchBoost() {
+        if (mPerf == null) {
+            mPerf = LocalServices.getService(PerformanceManagerInternal.class);
+        }
+        if (mPerf == null) {
+            Slog.e(TAG, "PerformanceManager not ready!");
+        } else {
+            mPerf.launchBoost();
+        }
+    }
+    
     /**
      * At the time when the constructor runs, the power manager has not yet been
      * initialized.  So we initialize our wakelocks afterwards.
      */
     void initPowerManagement() {
-        PowerManager pm = (PowerManager)mService.mContext.getSystemService(Context.POWER_SERVICE);
-        mGoingToSleep = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ActivityManager-Sleep");
-        mLaunchingActivity = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "*launch*");
+        mPm = (PowerManager)mService.mContext.getSystemService(Context.POWER_SERVICE);
+        mGoingToSleep = mPm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ActivityManager-Sleep");
+        mLaunchingActivity = mPm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "*launch*");
         mLaunchingActivity.setReferenceCounted(false);
     }
 
@@ -511,7 +532,8 @@ public final class ActivityStackSupervisor implements DisplayListener {
 
         mHomeStack.moveHomeStackTaskToTop(homeStackTaskType);
         ActivityRecord r = getHomeActivity();
-        if (r != null) {
+        // Only resume home activity if isn't finishing.
+        if (r != null && !r.finishing) {
             mService.setFocusedActivityLocked(r, reason);
             return resumeTopActivitiesLocked(mHomeStack, prev, null);
         }
@@ -948,6 +970,23 @@ public final class ActivityStackSupervisor implements DisplayListener {
                     container.mParentActivity.state != RESUMED) {
                 // Cannot start a child activity if the parent is not resumed.
                 return ActivityManager.START_CANCELED;
+            }
+
+            try {
+                //TODO: This needs to be a flushed out API in the future.
+                if (intent.getComponent() != null && AppGlobals.getPackageManager()
+                        .isComponentProtected(callingPackage, intent.getComponent(), userId)) {
+                    Message msg = mService.mHandler.obtainMessage(
+                            ActivityManagerService.POST_COMPONENT_PROTECTED_MSG);
+                    //Store start flags, userid
+                    intent.setFlags(startFlags);
+                    intent.putExtra("com.android.settings.PROTECTED_APPS_USER_ID", userId);
+                    msg.obj = intent;
+                    mService.mHandler.sendMessage(msg);
+                    return ActivityManager.START_NOT_CURRENT_USER_ACTIVITY;
+                }
+            } catch (RemoteException e) {
+                e.printStackTrace();
             }
             final int realCallingPid = Binder.getCallingPid();
             final int realCallingUid = Binder.getCallingUid();
@@ -1429,6 +1468,8 @@ public final class ActivityStackSupervisor implements DisplayListener {
                             Display.DEFAULT_DISPLAY : mFocusedStack.mDisplayId) :
                             (container.mActivityDisplay == null ? Display.DEFAULT_DISPLAY :
                                     container.mActivityDisplay.mDisplayId)));
+            /* Acquire perf lock during new app launch */
+            launchBoost();
         }
 
         ActivityRecord sourceRecord = null;
@@ -1481,6 +1522,11 @@ public final class ActivityStackSupervisor implements DisplayListener {
         if (err == ActivityManager.START_SUCCESS && intent.getComponent() == null) {
             // We couldn't find a class that can handle the given Intent.
             // That's the end of that!
+            final Uri data = intent.getData();
+            final String strData = data != null ? data.toSafeString() : null;
+            EventLog.writeEvent(EventLogTags.AM_INTENT_NOT_RESOLVED, callingPackage,
+                    intent.getAction(), intent.getType(), strData, intent.getFlags());
+
             err = ActivityManager.START_INTENT_NOT_RESOLVED;
         }
 
@@ -2674,8 +2720,7 @@ public final class ActivityStackSupervisor implements DisplayListener {
         boolean didSomething = false;
         for (int displayNdx = mActivityDisplays.size() - 1; displayNdx >= 0; --displayNdx) {
             final ArrayList<ActivityStack> stacks = mActivityDisplays.valueAt(displayNdx).mStacks;
-            final int numStacks = stacks.size();
-            for (int stackNdx = 0; stackNdx < numStacks; ++stackNdx) {
+            for (int stackNdx = stacks.size() - 1; stackNdx >= 0; --stackNdx) {
                 final ActivityStack stack = stacks.get(stackNdx);
                 if (stack.finishDisabledPackageActivitiesLocked(
                         packageName, filterByClasses, doit, evenPersistent, userId)) {
@@ -2774,6 +2819,12 @@ public final class ActivityStackSupervisor implements DisplayListener {
     }
 
     void findTaskToMoveToFrontLocked(TaskRecord task, int flags, Bundle options, String reason) {
+        ActivityRecord top = task.stack.topRunningActivityLocked(null);
+        /* App is launching from recent apps and it's a new process */
+        if(top != null && top.state == ActivityState.DESTROYED) {
+            launchBoost();
+        }
+
         if ((flags & ActivityManager.MOVE_TASK_NO_USER_ACTION) == 0) {
             mUserLeaving = true;
         }
@@ -3055,11 +3106,16 @@ public final class ActivityStackSupervisor implements DisplayListener {
                 }
                 final ActivityRecord ar = stack.findTaskLocked(r);
                 if (ar != null) {
+                    if (ar.state == ActivityState.DESTROYED) {
+                        launchBoost();
+                    }
                     return ar;
                 }
             }
         }
         if (DEBUG_TASKS) Slog.d(TAG_TASKS, "No task found");
+        launchBoost();
+
         return null;
     }
 

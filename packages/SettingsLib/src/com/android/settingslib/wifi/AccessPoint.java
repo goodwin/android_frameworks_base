@@ -124,6 +124,8 @@ public class AccessPoint implements Comparable<AccessPoint> {
 
     private Object mTag;
 
+    public boolean foundInScanResult = false;
+
     public AccessPoint(Context context, Bundle savedState) {
         mContext = context;
         mConfig = savedState.getParcelable(KEY_CONFIG);
@@ -334,6 +336,10 @@ public class AccessPoint implements Comparable<AccessPoint> {
         str.setSpan(new TtsSpan.VerbatimBuilder(ssid).build(), 0, ssid.length(),
                 Spannable.SPAN_INCLUSIVE_INCLUSIVE);
         return str;
+    }
+
+    public int getNetworkId() {
+        return networkId;
     }
 
     public String getConfigName() {
@@ -640,12 +646,7 @@ public class AccessPoint implements Comparable<AccessPoint> {
         } else if (config != null) {
             return matches(config);
         }
-        else {
-            // Might be an ephemeral connection with no WifiConfiguration. Try matching on SSID.
-            // (Note that we only do this if the WifiConfiguration explicitly equals INVALID).
-            // TODO: Handle hex string SSIDs.
-            return ssid.equals(removeDoubleQuotes(info.getSSID()));
-        }
+        return false;
     }
 
     public boolean isSaved() {

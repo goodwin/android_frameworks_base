@@ -23,6 +23,7 @@ import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
+import android.content.res.ThemeConfig;
 import android.content.res.XmlResourceParser;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
@@ -40,6 +41,7 @@ import android.os.UserHandle;
 import android.provider.Settings;
 import android.provider.Settings.Global;
 import android.provider.Settings.Secure;
+import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -51,11 +53,13 @@ import com.android.internal.util.XmlUtils;
 import com.android.internal.widget.LockPatternUtils;
 import com.android.internal.widget.LockPatternView;
 
+import cyanogenmod.providers.CMSettings;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -76,11 +80,16 @@ class DatabaseHelper extends SQLiteOpenHelper {
     private static final String TAG = "SettingsProvider";
     private static final String DATABASE_NAME = "settings.db";
 
+    private static final int TYPE_NONE = -1;
+
     // Please, please please. If you update the database version, check to make sure the
     // database gets upgraded properly. At a minimum, please confirm that 'upgradeVersion'
     // is properly propagated through your change.  Not doing so will result in a loss of user
     // settings.
-    private static final int DATABASE_VERSION = 118;
+    private static final int DATABASE_VERSION = 125;
+
+    //Maximum number of phones
+    private static final int MAX_PHONE_COUNT = 3;
 
     private Context mContext;
     private int mUserHandle;
@@ -717,6 +726,10 @@ class DatabaseHelper extends SQLiteOpenHelper {
                    Secure.LOCK_PATTERN_ENABLED,
                    Secure.LOCK_PATTERN_VISIBLE,
                    Secure.LOCK_PATTERN_TACTILE_FEEDBACK_ENABLED,
+                   CMSettings.Secure.LOCK_PASS_TO_SECURITY_VIEW,
+                   Secure.LOCK_PATTERN_SIZE,
+                   Secure.LOCK_DOTS_VISIBLE,
+                   Secure.LOCK_SHOW_ERROR_PATH,
                    "lockscreen.password_type",
                    "lockscreen.lockoutattemptdeadline",
                    "lockscreen.patterneverchosen",
@@ -1388,6 +1401,7 @@ class DatabaseHelper extends SQLiteOpenHelper {
         if (upgradeVersion == 88) {
             if (mUserHandle == UserHandle.USER_OWNER) {
                 db.beginTransaction();
+                SQLiteStatement stmt = null;
                 try {
                     String[] settingsToMove = {
                             Settings.Global.BATTERY_DISCHARGE_DURATION_THRESHOLD,
@@ -1407,7 +1421,6 @@ class DatabaseHelper extends SQLiteOpenHelper {
                             Settings.Global.SYS_STORAGE_FULL_THRESHOLD_BYTES,
                             Settings.Global.SYNC_MAX_RETRY_DELAY_IN_SECONDS,
                             Settings.Global.CONNECTIVITY_CHANGE_DELAY,
-                            Settings.Global.CAPTIVE_PORTAL_DETECTION_ENABLED,
                             Settings.Global.CAPTIVE_PORTAL_SERVER,
                             Settings.Global.NSD_ON,
                             Settings.Global.SET_INSTALL_LOCATION,
@@ -1423,9 +1436,16 @@ class DatabaseHelper extends SQLiteOpenHelper {
                             Settings.Global.DEFAULT_DNS_SERVER,
                     };
                     moveSettingsToNewTable(db, TABLE_SECURE, TABLE_GLOBAL, settingsToMove, true);
+
+                    stmt = db.compileStatement("INSERT OR REPLACE INTO global(name,value)"
+                            + " VALUES(?,?);");
+                    loadIntegerSetting(stmt, Settings.Global.CAPTIVE_PORTAL_DETECTION_ENABLED,
+                            R.integer.def_captive_portal_detection_enabled);
+                    stmt.close();
                     db.setTransactionSuccessful();
                 } finally {
                     db.endTransaction();
+                    if (stmt != null) stmt.close();
                 }
             }
             upgradeVersion = 89;
@@ -1871,9 +1891,34 @@ class DatabaseHelper extends SQLiteOpenHelper {
             upgradeVersion = 113;
         }
 
-        // We skipped 114 to handle a merge conflict with the introduction of theater mode.
+        // We skipped 114 to handle a merge conflict with the introduction of theater mode. Except
+        // in CM we didn't, soooooo...
+        if (upgradeVersion < 114) {
+            // Artificially bump our upgrade version to handle
+            // migration path from cm-11.0 to cm-12.0
+            // without this, heads up would never work if
+            // a user did not wipe data
+            /** CM-13, this option was moved to CMSettings, artificially bump, skip default load.**/
+//            upgradeHeadsUpSettingFromNone(db);
+//            upgradeDeviceNameFromNone(db);
+
+            // Removal of back/recents is no longer supported
+            // due to pinned apps
+            db.beginTransaction();
+            try {
+                db.execSQL("DELETE FROM system WHERE name='"
+                        + CMSettings.System.NAV_BUTTONS + "'");
+                db.setTransactionSuccessful();
+            } finally {
+                db.endTransaction();
+            }
+
+            upgradeVersion = 114;
+        }
 
         if (upgradeVersion < 115) {
+            moveSettingsToNewTable(db, TABLE_SYSTEM, TABLE_SECURE,
+                    new String[] { CMSettings.Secure.STATS_COLLECTION }, true);
             if (mUserHandle == UserHandle.USER_OWNER) {
                 db.beginTransaction();
                 SQLiteStatement stmt = null;
@@ -1892,6 +1937,8 @@ class DatabaseHelper extends SQLiteOpenHelper {
         }
 
         if (upgradeVersion < 116) {
+            moveSettingsToNewTable(db, TABLE_SYSTEM, TABLE_SECURE,
+                    new String[]{Settings.Secure.VOLUME_LINK_NOTIFICATION}, true);
             if (mUserHandle == UserHandle.USER_OWNER) {
                 db.beginTransaction();
                 SQLiteStatement stmt = null;
@@ -1920,10 +1967,44 @@ class DatabaseHelper extends SQLiteOpenHelper {
             } finally {
                 db.endTransaction();
             }
+
+            // CM11 used "holo" as a system default theme. For CM12 and up its been
+            // switched to "system". So change all "holo" references in themeConfig to "system"
+            final String NAME_THEME_CONFIG = "themeConfig";
+            Cursor c = null;
+            try {
+                String[] projection = new String[]{"value"};
+                String selection = "name=?";
+                String[] selectionArgs = new String[] { NAME_THEME_CONFIG };
+                c = db.query(TABLE_SECURE, projection, selection,
+                        selectionArgs, null, null, null);
+                if (c != null && c.moveToFirst()) {
+                    String jsonConfig = c.getString(0);
+                    if (jsonConfig != null) {
+                        jsonConfig = jsonConfig.replace(
+                                "\"holo\"", '"' + ThemeConfig.SYSTEM_DEFAULT + '"');
+
+                        // Now update the entry
+                        SQLiteStatement stmt = db.compileStatement(
+                                "UPDATE " + TABLE_SECURE + " SET value = ? "
+                                        + " WHERE name = ?");
+                        stmt.bindString(1, jsonConfig);
+                        stmt.bindString(2, NAME_THEME_CONFIG);
+                        stmt.execute();
+                    }
+                }
+            } finally {
+                if (c != null) c.close();
+            }
             upgradeVersion = 117;
         }
 
         if (upgradeVersion < 118) {
+            String[] settingsToMove = new String[] {
+                    CMSettings.Secure.QS_SHOW_BRIGHTNESS_SLIDER,
+            };
+            moveSettingsToNewTable(db, TABLE_SYSTEM, TABLE_SECURE,
+                    settingsToMove, true);
             // Reset rotation-lock-for-accessibility on upgrade, since it now hides the display
             // setting.
             db.beginTransaction();
@@ -1939,6 +2020,110 @@ class DatabaseHelper extends SQLiteOpenHelper {
             }
             upgradeVersion = 118;
         }
+
+        /** CM-13 CHANGES -- THIS IS TO SUPPORT LEGACY UPGRADES, DO NOT ADD ANY NEW DEFAULTS HERE
+         * INSTEAD UTILIZE THE CMSETTINGS PROVIDER
+         */
+        if (upgradeVersion == 119) {
+            /** CM-13, this option was moved to CMSettings, artificially bump, skip default load.**/
+//            db.beginTransaction();
+//            SQLiteStatement stmt = null;
+//            try {
+//                stmt = db.compileStatement("INSERT OR IGNORE INTO secure(name,value) VALUES(?,?);");
+//                loadDefaultThemeSettings(stmt);
+//                db.setTransactionSuccessful();
+//            } finally {
+//                db.endTransaction();
+//                if (stmt != null) stmt.close();
+//            }
+            upgradeVersion = 120;
+        }
+
+        if (upgradeVersion < 121) {
+            String[] settingsToMove = CMSettings.Secure.NAVIGATION_RING_TARGETS;
+
+            moveSettingsToNewTable(db, TABLE_SYSTEM, TABLE_SECURE,
+                    settingsToMove, true);
+            upgradeVersion = 121;
+        }
+
+        if (upgradeVersion < 122) {
+            /** CM-13, this option was moved to CMSettings, artificially bump, skip default load.**/
+//            db.beginTransaction();
+//            SQLiteStatement stmt = null;
+//            try {
+//                stmt = db.compileStatement("INSERT OR IGNORE INTO secure(name,value)"
+//                        + " VALUES(?,?);");
+//                loadBooleanSetting(stmt, CMSettings.Secure.ADVANCED_MODE,
+//                        com.android.internal.R.bool.config_advancedSettingsMode);
+//                db.setTransactionSuccessful();
+//            } finally {
+//                db.endTransaction();
+//                if (stmt != null) stmt.close();
+//            }
+            upgradeVersion = 122;
+        }
+
+        if (upgradeVersion < 123) {
+            // only the owner has access to global table, so we need to check that here
+            if (mUserHandle == UserHandle.USER_OWNER) {
+                String[] globalToSecure = new String[] { CMSettings.Secure.POWER_MENU_ACTIONS };
+
+                moveSettingsToNewTable(db, TABLE_GLOBAL, TABLE_SECURE, globalToSecure, true);
+            }
+
+            String[] systemToSecure = new String[] {
+                    CMSettings.Secure.DEV_FORCE_SHOW_NAVBAR,
+                    CMSettings.Secure.KEYBOARD_BRIGHTNESS,
+                    CMSettings.Secure.BUTTON_BRIGHTNESS,
+                    CMSettings.Secure.BUTTON_BACKLIGHT_TIMEOUT
+            };
+            moveSettingsToNewTable(db, TABLE_SYSTEM, TABLE_SECURE, systemToSecure, true);
+
+            upgradeVersion = 123;
+        }
+
+        if (upgradeVersion < 124) {
+            // Migrate from cm-12.0 if there is no entry from cm-11.0
+            /** CM-13, this option was moved to CMSettings, artificially bump, skip default load.**/
+//            db.beginTransaction();
+//            SQLiteStatement stmt = null;
+//            try {
+//                stmt = db.compileStatement("INSERT OR IGNORE INTO secure(name,value)"
+//                        + " VALUES(?,?);");
+//                int quickPulldown = getIntValueFromSystem(db,
+//                        CMSettings.System.STATUS_BAR_QUICK_QS_PULLDOWN,
+//                        R.integer.def_qs_quick_pulldown);
+//                loadSetting(stmt, CMSettings.System.QS_QUICK_PULLDOWN, quickPulldown);
+//                db.setTransactionSuccessful();
+//            } finally {
+//                db.endTransaction();
+//                if (stmt != null) stmt.close();
+//            }
+            upgradeVersion = 124;
+        }
+
+        if (upgradeVersion < 125) {
+            // Force enable advanced settings if the overlay defaults to true
+            /** CM-13, this option was moved to CMSettings, artificially bump, skip default load.**/
+//            if (mContext.getResources().getBoolean(
+//                    com.android.internal.R.bool.config_advancedSettingsMode)) {
+//                db.beginTransaction();
+//                SQLiteStatement stmt = null;
+//                try {
+//                    stmt = db.compileStatement("INSERT OR REPLACE INTO secure(name,value)"
+//                            + " VALUES(?,?);");
+//                    loadBooleanSetting(stmt, CMSettings.Secure.ADVANCED_MODE,
+//                            com.android.internal.R.bool.config_advancedSettingsMode);
+//                    db.setTransactionSuccessful();
+//                } finally {
+//                    db.endTransaction();
+//                    if (stmt != null) stmt.close();
+//                }
+//            }
+            upgradeVersion = 125;
+        }
+        /** END CM-13 CHANGES */
 
         /*
          * IMPORTANT: Do not add any more upgrade steps here as the global,
@@ -2065,7 +2250,7 @@ class DatabaseHelper extends SQLiteOpenHelper {
                 try {
                     LockPatternUtils lpu = new LockPatternUtils(mContext);
                     List<LockPatternView.Cell> cellPattern =
-                            LockPatternUtils.stringToPattern(lockPattern);
+                            LockPatternUtils.stringToPattern(lockPattern, lpu.getLockPatternSize());
                     lpu.saveLockPattern(cellPattern, null, UserHandle.USER_OWNER);
                 } catch (IllegalArgumentException e) {
                     // Don't want corrupted lock pattern to hang the reboot process
@@ -2334,9 +2519,23 @@ class DatabaseHelper extends SQLiteOpenHelper {
         try {
             stmt = db.compileStatement("INSERT OR IGNORE INTO system(name,value)"
                     + " VALUES(?,?);");
-            loadSetting(stmt, Settings.System.VIBRATE_WHEN_RINGING, vibrateWhenRinging ? 1 : 0);
+            if (mContext.getResources().getBoolean(R.bool.def_vibrate_when_ringing_enabled)) {
+                loadSetting(stmt, Settings.System.VIBRATE_WHEN_RINGING, 1);
+            } else {
+                loadSetting(stmt, Settings.System.VIBRATE_WHEN_RINGING, vibrateWhenRinging ? 1 : 0);
+            }
         } finally {
             if (stmt != null) stmt.close();
+        }
+    }
+
+    private void loadProtectedSmsSetting(SQLiteStatement stmt) {
+        String[] regAddresses = mContext.getResources()
+                .getStringArray(R.array.def_protected_sms_list_values);
+        if (regAddresses.length > 0) {
+            loadSetting(stmt,
+                    Settings.Secure.PROTECTED_SMS_ADDRESSES,
+                    TextUtils.join("|", regAddresses));
         }
     }
 
@@ -2380,6 +2579,9 @@ class DatabaseHelper extends SQLiteOpenHelper {
             loadBooleanSetting(stmt, Settings.System.ACCELEROMETER_ROTATION,
                     R.bool.def_accelerometer_rotation);
 
+            loadIntegerSetting(stmt, Settings.System.ACCELEROMETER_ROTATION_ANGLES,
+                    R.integer.def_accelerometer_rotation_angles);
+
             loadDefaultHapticSettings(stmt);
 
             loadBooleanSetting(stmt, Settings.System.NOTIFICATION_LIGHT_PULSE,
@@ -2397,6 +2599,17 @@ class DatabaseHelper extends SQLiteOpenHelper {
              *
              * See: SettingsProvider.UpgradeController#onUpgradeLocked
              */
+
+            //LEGACY CAF CHANGES
+            if (!TextUtils.isEmpty(mContext.getResources().getString(R.string.def_time_format))) {
+                loadStringSetting(stmt, Settings.System.TIME_12_24,
+                        R.string.def_time_format);
+            }
+
+            if (!TextUtils.isEmpty(mContext.getResources().getString(R.string.def_date_format))) {
+                loadStringSetting(stmt, Settings.System.DATE_FORMAT,
+                        R.string.def_date_format);
+            }
         } finally {
             if (stmt != null) stmt.close();
         }
@@ -2446,7 +2659,7 @@ class DatabaseHelper extends SQLiteOpenHelper {
 
             // Allow mock locations default, based on build
             loadSetting(stmt, Settings.Secure.ALLOW_MOCK_LOCATION,
-                    "1".equals(SystemProperties.get("ro.allow.mock.location")) ? 1 : 0);
+                    "1".equals(SystemProperties.get("persist.env.c.allow.enable")) ? 1 : 0);
 
             loadSecure35Settings(stmt);
 
@@ -2536,6 +2749,24 @@ class DatabaseHelper extends SQLiteOpenHelper {
              *
              * See: SettingsProvider.UpgradeController#onUpgradeLocked
              */
+
+            //LEGACY CAF CHANGES
+            if (!TextUtils.isEmpty(mContext.getResources().getString(R.string.def_input_method))) {
+                loadStringSetting(stmt, Settings.Secure.DEFAULT_INPUT_METHOD,
+                        R.string.def_input_method);
+            }
+
+            if (!TextUtils.isEmpty(mContext.getResources().getString(
+                    R.string.def_enable_input_methods))) {
+                loadStringSetting(stmt, Settings.Secure.ENABLED_INPUT_METHODS,
+                        R.string.def_enable_input_methods);
+            }
+
+            // for accessibility enabled
+            loadStringSetting(stmt, Settings.Secure.ACCESSIBILITY_ENABLED,
+                    R.integer.def_enable_accessiblity);
+            loadStringSetting(stmt, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                    R.string.def_enable_accessiblity_services);
         } finally {
             if (stmt != null) stmt.close();
         }
@@ -2606,10 +2837,8 @@ class DatabaseHelper extends SQLiteOpenHelper {
                     RILConstants.CDMA_CELL_BROADCAST_SMS_DISABLED);
 
             // Data roaming default, based on build
-            loadSetting(stmt, Settings.Global.DATA_ROAMING,
-                    "true".equalsIgnoreCase(
-                            SystemProperties.get("ro.com.android.dataroaming",
-                                    "false")) ? 1 : 0);
+            loadBooleanSetting(stmt, Settings.Global.DATA_ROAMING,
+                    R.bool.def_enable_data_roaming);
 
             loadBooleanSetting(stmt, Settings.Global.DEVICE_PROVISIONED,
                     R.bool.def_device_provisioned);
@@ -2629,10 +2858,20 @@ class DatabaseHelper extends SQLiteOpenHelper {
             }
 
             // Mobile Data default, based on build
-            loadSetting(stmt, Settings.Global.MOBILE_DATA,
-                    "true".equalsIgnoreCase(
-                            SystemProperties.get("ro.com.android.mobiledata",
-                                    "true")) ? 1 : 0);
+            loadBooleanSetting(stmt, Settings.Global.MOBILE_DATA,
+                    R.bool.def_enable_mobile_data);
+
+            int phoneCount = TelephonyManager.getDefault().getPhoneCount();
+            // SUB specific flags for Multisim devices
+            for (int phoneId = 0; phoneId < MAX_PHONE_COUNT; phoneId++) {
+                // Mobile Data default, based on build
+                loadBooleanSetting(stmt, Settings.Global.MOBILE_DATA + phoneId,
+                        R.bool.def_enable_mobile_data);
+
+                // Data roaming default, based on build
+                loadBooleanSetting(stmt, Settings.Global.DATA_ROAMING + phoneId,
+                        R.bool.def_enable_data_roaming);
+            }
 
             loadBooleanSetting(stmt, Settings.Global.NETSTATS_ENABLED,
                     R.bool.def_netstats_enabled);
@@ -2668,6 +2907,8 @@ class DatabaseHelper extends SQLiteOpenHelper {
                     R.string.def_car_undock_sound);
             loadStringSetting(stmt, Settings.Global.WIRELESS_CHARGING_STARTED_SOUND,
                     R.string.def_wireless_charging_started_sound);
+            loadIntegerSetting(stmt, Settings.Global.DOCK_AUDIO_MEDIA_ENABLED,
+                    R.integer.def_dock_audio_media_enabled);
 
             loadIntegerSetting(stmt, Settings.Global.DOCK_AUDIO_MEDIA_ENABLED,
                     R.integer.def_dock_audio_media_enabled);
@@ -2684,13 +2925,36 @@ class DatabaseHelper extends SQLiteOpenHelper {
 
             // Set the preferred network mode to target desired value or Default
             // value defined in RILConstants
-            int type;
-            type = RILConstants.PREFERRED_NETWORK_MODE;
-            loadSetting(stmt, Settings.Global.PREFERRED_NETWORK_MODE, type);
+            final String defVal = SystemProperties.get("ro.telephony.default_network", "");
+            final String[] defNetworkSettings = defVal.split(",");
+            final String[] networkSettings = new String[phoneCount];
+            boolean error = defNetworkSettings.length != phoneCount;
+
+            for (int i = 0; i < phoneCount; i++) {
+                if (i < defNetworkSettings.length) {
+                    try {
+                        networkSettings[i] = String.valueOf(
+                                Integer.parseInt(defNetworkSettings[i]));
+                    } catch (NumberFormatException ex) {
+                        networkSettings[i] = String.valueOf(RILConstants.PREFERRED_NETWORK_MODE);
+                        error = true;
+                    }
+                } else {
+                    networkSettings[i] = String.valueOf(RILConstants.PREFERRED_NETWORK_MODE);
+                    error = true;
+                }
+            }
+
+            if (error) {
+                Log.w(TAG, "Invalid ro.telephony.default_network: " + defVal);
+            }
+
+            loadSetting(stmt, Settings.Global.PREFERRED_NETWORK_MODE, TextUtils.join(",",
+                    networkSettings));
 
             // Set the preferred cdma subscription source to target desired value or default
             // value defined in CdmaSubscriptionSourceManager
-            type = SystemProperties.getInt("ro.telephony.default_cdma_sub",
+            int type = SystemProperties.getInt("ro.telephony.default_cdma_sub",
                         CdmaSubscriptionSourceManager.PREFERRED_CDMA_SUBSCRIPTION);
             loadSetting(stmt, Settings.Global.CDMA_SUBSCRIPTION_MODE, type);
 
@@ -2705,11 +2969,13 @@ class DatabaseHelper extends SQLiteOpenHelper {
 
             loadSetting(stmt, Settings.Global.DEVICE_NAME, getDefaultDeviceName());
 
+            loadIntegerSetting(stmt, Settings.Global.SEND_ACTION_APP_ERROR,
+                    R.integer.def_send_action_app_error);
+
             loadBooleanSetting(stmt, Settings.Global.GUEST_USER_ENABLED,
                     R.bool.def_guest_user_enabled);
             loadSetting(stmt, Settings.Global.ENHANCED_4G_MODE_ENABLED,
                     ImsConfig.FeatureValueConstants.ON);
-
             /*
              * IMPORTANT: Do not add any more upgrade steps here as the global,
              * secure, and system settings are no longer stored in a database
@@ -2717,6 +2983,8 @@ class DatabaseHelper extends SQLiteOpenHelper {
              *
              * See: SettingsProvider.UpgradeController#onUpgradeLocked
              */
+            loadIntegerSetting(stmt, Settings.Global.CAPTIVE_PORTAL_DETECTION_ENABLED,
+                    R.integer.def_captive_portal_detection_enabled);
         } finally {
             if (stmt != null) stmt.close();
         }

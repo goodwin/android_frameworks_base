@@ -117,11 +117,6 @@
     <!-- The number of columns that the top level tiles span in the QuickSettings -->
     <integer name="quick_settings_user_time_settings_tile_span">1</integer>
 
-    <!-- The default tiles to display in QuickSettings -->
-    <string name="quick_settings_tiles_default" translatable="false">
-        wifi,bt,inversion,dnd,cell,airplane,rotation,flashlight,location,cast,hotspot
-    </string>
-
     <!-- The tiles to display in QuickSettings -->
     <string name="quick_settings_tiles" translatable="false">default</string>
 
@@ -137,6 +132,9 @@
 
     <!-- Should "4G" be shown instead of "LTE" when the network is NETWORK_TYPE_LTE? -->
     <bool name="config_show4GForLTE">true</bool>
+
+    <!-- Whether or not we also show rsrp level for LTE. -->
+    <bool name="config_showRsrpSignalLevelforLTE">false</bool>
 
     <!-- milliseconds before the heads up notification auto-dismisses. -->
     <integer name="heads_up_notification_decay">5000</integer>
@@ -239,6 +237,9 @@
     <!-- Doze: check proximity sensor before pulsing? -->
     <bool name="doze_proximity_check_before_pulse">true</bool>
 
+    <!-- Doze: check proximity sensor before pulsing from intent? -->
+    <bool name="doze_proximity_check_before_pulse_intent">false</bool>
+
     <!-- Doze: should notifications be used as a pulse signal? -->
     <bool name="doze_pulse_on_notifications">true</bool>
 
@@ -259,6 +260,12 @@
 
     <!-- Doze: pulse parameter - how long does it take to fade in after a pickup? -->
     <integer name="doze_pulse_duration_in_pickup">300</integer>
+
+    <!-- Doze: pulse parameter - how long does it take to fade in after an intent? -->
+    <integer name="doze_pulse_duration_in_intent">300</integer>
+
+    <!-- Doze: pulse parameter - delay to wait for the screen to wake up after an intent -->
+    <integer name="doze_pulse_delay_in_intent">200</integer>
 
     <!-- Doze: pulse parameter - once faded in, how long does it stay visible? -->
     <integer name="doze_pulse_duration_visible">3000</integer>
@@ -289,6 +296,9 @@
 
     <!-- Duration of the expansion animation in the volume dialog -->
     <item name="volume_expand_animation_duration" type="integer">300</item>
+
+    <!-- Allow Flashlight service to use wakelock -->
+    <bool name="flashlight_use_wakelock">false</bool>
 
 </resources>
 

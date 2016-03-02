@@ -1119,7 +1119,15 @@ public final class ContactsContract {
         public static final String SORT_KEY_ALTERNATIVE = "sort_key_alt";
     }
 
-    interface ContactCounts {
+    /**
+     * URI parameter and cursor extras that return counts of rows grouped by the
+     * address book index, which is usually the first letter of the sort key.
+     * When this parameter is supplied, the row counts are returned in the
+     * cursor extras bundle.
+     *
+     * @hide
+     */
+    public interface ContactCounts {
 
         /**
          * Add this query parameter to a URI to get back row counts grouped by the address book
@@ -1497,6 +1505,7 @@ public final class ContactsContract {
          *            {@link #CONTENT_LOOKUP_URI} to attempt refreshing.
          */
         public static Uri getLookupUri(ContentResolver resolver, Uri contactUri) {
+            android.util.SeempLog.record(86);
             final Cursor c = resolver.query(contactUri, new String[] {
                     Contacts.LOOKUP_KEY, Contacts._ID
             }, null, null, null);
@@ -1524,6 +1533,7 @@ public final class ContactsContract {
          * provided parameters.
          */
         public static Uri getLookupUri(long contactId, String lookupKey) {
+            android.util.SeempLog.record(86);
             if (TextUtils.isEmpty(lookupKey)) {
                 return null;
             }
@@ -1537,6 +1547,7 @@ public final class ContactsContract {
          * Returns null if the contact cannot be found.
          */
         public static Uri lookupContact(ContentResolver resolver, Uri lookupUri) {
+            android.util.SeempLog.record(87);
             if (lookupUri == null) {
                 return null;
             }
@@ -1999,6 +2010,7 @@ public final class ContactsContract {
          */
         public static InputStream openContactPhotoInputStream(ContentResolver cr, Uri contactUri,
                 boolean preferHighres) {
+            android.util.SeempLog.record(88);
             if (preferHighres) {
                 final Uri displayPhotoUri = Uri.withAppendedPath(contactUri,
                         Contacts.Photo.DISPLAY_PHOTO);
@@ -2046,6 +2058,7 @@ public final class ContactsContract {
          * of the thumbnail the high-res picture is preferred
          */
         public static InputStream openContactPhotoInputStream(ContentResolver cr, Uri contactUri) {
+            android.util.SeempLog.record(88);
             return openContactPhotoInputStream(cr, contactUri, false);
         }
     }
@@ -2738,6 +2751,7 @@ public final class ContactsContract {
          * entry of the given {@link RawContacts} entry.
          */
         public static Uri getContactLookupUri(ContentResolver resolver, Uri rawContactUri) {
+            android.util.SeempLog.record(89);
             // TODO: use a lighter query by joining rawcontacts with contacts in provider
             final Uri dataUri = Uri.withAppendedPath(rawContactUri, Data.CONTENT_DIRECTORY);
             final Cursor cursor = resolver.query(dataUri, new String[] {
@@ -4684,6 +4698,7 @@ public final class ContactsContract {
          * </p>
          */
         public static Uri getContactLookupUri(ContentResolver resolver, Uri dataUri) {
+            android.util.SeempLog.record(89);
             final Cursor cursor = resolver.query(dataUri, new String[] {
                     RawContacts.CONTACT_ID, Contacts.LOOKUP_KEY
             }, null, null, null);

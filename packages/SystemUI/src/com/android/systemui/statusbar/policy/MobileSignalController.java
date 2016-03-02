@@ -19,6 +19,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.NetworkCapabilities;
 import android.os.Looper;
+import android.os.SystemProperties;
 import android.telephony.PhoneStateListener;
 import android.telephony.ServiceState;
 import android.telephony.SignalStrength;
@@ -159,6 +160,7 @@ public class MobileSignalController extends SignalController<
         mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_EVDO_B, TelephonyIcons.THREE_G);
         mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_EHRPD, TelephonyIcons.THREE_G);
         mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_UMTS, TelephonyIcons.THREE_G);
+        mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_TD_SCDMA, TelephonyIcons.THREE_G);
 
         if (!mConfig.showAtLeast3G) {
             mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_UNKNOWN,
@@ -187,12 +189,18 @@ public class MobileSignalController extends SignalController<
         mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_HSDPA, hGroup);
         mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_HSUPA, hGroup);
         mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_HSPA, hGroup);
+        if (mConfig.hspaDataDistinguishable) {
+            hGroup = TelephonyIcons.HP;
+        }
         mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_HSPAP, hGroup);
 
         if (mConfig.show4gForLte) {
             mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_LTE, TelephonyIcons.FOUR_G);
+            mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_LTE_CA,
+                TelephonyIcons.FOUR_G_PLUS);
         } else {
             mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_LTE, TelephonyIcons.LTE);
+            mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_LTE_CA, TelephonyIcons.LTE);
         }
         mNetworkToIconLookup.put(TelephonyManager.NETWORK_TYPE_IWLAN, TelephonyIcons.WFC);
     }
@@ -231,6 +239,7 @@ public class MobileSignalController extends SignalController<
         int typeIcon = showDataIcon ? icons.mDataType : 0;
         mCallbackHandler.setMobileDataIndicators(statusIcon, qsIcon, typeIcon, qsTypeIcon,
                 activityIn, activityOut, dataContentDescription, description, icons.mIsWide,
+                mCurrentState.showSeparateRoaming,
                 mSubscriptionInfo.getSubscriptionId());
     }
 
@@ -371,6 +380,13 @@ public class MobileSignalController extends SignalController<
                 mCurrentState.level = mSignalStrength.getCdmaLevel();
             } else {
                 mCurrentState.level = mSignalStrength.getLevel();
+                if (mConfig.showRsrpSignalLevelforLTE) {
+                    int dataType = mServiceState.getDataNetworkType();
+                    if (dataType == TelephonyManager.NETWORK_TYPE_LTE ||
+                            dataType == TelephonyManager.NETWORK_TYPE_LTE_CA) {
+                        mCurrentState.level = getAlternateLteLevel(mSignalStrength);
+                    }
+                }
             }
         }
         if (mNetworkToIconLookup.indexOfKey(mDataNetType) >= 0) {
@@ -384,7 +400,12 @@ public class MobileSignalController extends SignalController<
         if (isCarrierNetworkChangeActive()) {
             mCurrentState.iconGroup = TelephonyIcons.CARRIER_NETWORK_CHANGE;
         } else if (isRoaming()) {
-            mCurrentState.iconGroup = TelephonyIcons.ROAMING;
+            mCurrentState.showSeparateRoaming = false;
+            if (SystemProperties.getBoolean("ro.config.always_show_roaming", false)) {
+                mCurrentState.showSeparateRoaming = true;
+            } else {
+                mCurrentState.iconGroup = TelephonyIcons.ROAMING;
+            }
         }
         if (isEmergencyOnly() != mCurrentState.isEmergency) {
             mCurrentState.isEmergency = isEmergencyOnly();
@@ -397,6 +418,21 @@ public class MobileSignalController extends SignalController<
         }
 
         notifyListenersIfNecessary();
+    }
+
+    private int getAlternateLteLevel(SignalStrength signalStrength) {
+        int lteRsrp = signalStrength.getLteDbm();
+        int rsrpLevel = SignalStrength.SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
+        if (lteRsrp > -44) rsrpLevel = SignalStrength.SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
+        else if (lteRsrp >= -97) rsrpLevel = SignalStrength.SIGNAL_STRENGTH_GREAT;
+        else if (lteRsrp >= -105) rsrpLevel = SignalStrength.SIGNAL_STRENGTH_GOOD;
+        else if (lteRsrp >= -113) rsrpLevel = SignalStrength.SIGNAL_STRENGTH_MODERATE;
+        else if (lteRsrp >= -120) rsrpLevel = SignalStrength.SIGNAL_STRENGTH_POOR;
+        else if (lteRsrp >= -140) rsrpLevel = SignalStrength.SIGNAL_STRENGTH_NONE_OR_UNKNOWN;
+        if (DEBUG) {
+            Log.d(mTag, "getAlternateLteLevel lteRsrp:" + lteRsrp + " rsrpLevel = " + rsrpLevel);
+        }
+        return rsrpLevel;
     }
 
     @VisibleForTesting
@@ -501,6 +537,7 @@ public class MobileSignalController extends SignalController<
         boolean airplaneMode;
         boolean carrierNetworkChangeMode;
         boolean isDefault;
+        boolean showSeparateRoaming;
 
         @Override
         public void copyFrom(State s) {
@@ -514,6 +551,7 @@ public class MobileSignalController extends SignalController<
             isEmergency = state.isEmergency;
             airplaneMode = state.airplaneMode;
             carrierNetworkChangeMode = state.carrierNetworkChangeMode;
+            showSeparateRoaming = state.showSeparateRoaming;
         }
 
         @Override
@@ -528,6 +566,7 @@ public class MobileSignalController extends SignalController<
             builder.append("isEmergency=").append(isEmergency).append(',');
             builder.append("airplaneMode=").append(airplaneMode).append(',');
             builder.append("carrierNetworkChangeMode=").append(carrierNetworkChangeMode);
+            builder.append("showSeparateRoaming=").append(showSeparateRoaming);
         }
 
         @Override
@@ -540,7 +579,8 @@ public class MobileSignalController extends SignalController<
                     && ((MobileState) o).isEmergency == isEmergency
                     && ((MobileState) o).airplaneMode == airplaneMode
                     && ((MobileState) o).carrierNetworkChangeMode == carrierNetworkChangeMode
-                    && ((MobileState) o).isDefault == isDefault;
+                    && ((MobileState) o).isDefault == isDefault
+                    && ((MobileState) o).showSeparateRoaming == showSeparateRoaming;
         }
     }
 }

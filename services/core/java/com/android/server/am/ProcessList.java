@@ -32,6 +32,7 @@ import com.android.server.wm.WindowManagerService;
 import android.content.res.Resources;
 import android.graphics.Point;
 import android.os.SystemProperties;
+import android.os.Process;
 import android.net.LocalSocketAddress;
 import android.net.LocalSocket;
 import android.util.Slog;
@@ -133,7 +134,17 @@ final class ProcessList {
     // we have no limit on the number of service, visible, foreground, or other such
     // processes and the number of those processes does not count against the cached
     // process limit.
-    static final int MAX_CACHED_APPS = 32;
+    static final int MAX_CACHED_APPS = SystemProperties.getInt("ro.sys.fw.bg_apps_limit",32);
+    static final boolean USE_TRIM_SETTINGS =
+            SystemProperties.getBoolean("ro.sys.fw.use_trim_settings",false);
+    static final int EMPTY_APP_PERCENT = SystemProperties.getInt("ro.sys.fw.empty_app_percent",50);
+    static final int TRIM_EMPTY_PERCENT =
+            SystemProperties.getInt("ro.sys.fw.trim_empty_percent",100);
+    static final int TRIM_CACHE_PERCENT =
+            SystemProperties.getInt("ro.sys.fw.trim_cache_percent",100);
+    static final long TRIM_ENABLE_MEMORY =
+            SystemProperties.getLong("ro.sys.fw.trim_enable_memory",1073741824);
+    public static boolean allowTrim() { return Process.getTotalMemory() < TRIM_ENABLE_MEMORY ; }
 
     // We allow empty processes to stick around for at most 30 minutes.
     static final long MAX_EMPTY_TIME = 30*60*1000;
@@ -143,11 +154,25 @@ final class ProcessList {
 
     // The number of empty apps at which we don't consider it necessary to do
     // memory trimming.
-    static final int TRIM_EMPTY_APPS = MAX_EMPTY_APPS/2;
+    public static int computeTrimEmptyApps() {
+        if (USE_TRIM_SETTINGS && allowTrim()) {
+            return MAX_EMPTY_APPS*TRIM_EMPTY_PERCENT/100;
+        } else {
+            return MAX_EMPTY_APPS/2;
+        }
+    }
+    static final int TRIM_EMPTY_APPS = computeTrimEmptyApps();
 
     // The number of cached at which we don't consider it necessary to do
     // memory trimming.
-    static final int TRIM_CACHED_APPS = (MAX_CACHED_APPS-MAX_EMPTY_APPS)/3;
+    public static int computeTrimCachedApps() {
+        if (USE_TRIM_SETTINGS && allowTrim()) {
+            return MAX_CACHED_APPS*TRIM_CACHE_PERCENT/100;
+        } else {
+            return (MAX_CACHED_APPS-MAX_EMPTY_APPS)/3;
+        }
+    }
+    static final int TRIM_CACHED_APPS = computeTrimCachedApps();
 
     // Threshold of number of cached+empty where we consider memory critical.
     static final int TRIM_CRITICAL_THRESHOLD = 3;
@@ -171,6 +196,17 @@ final class ProcessList {
     private final int[] mOomAdj = new int[] {
             FOREGROUND_APP_ADJ, VISIBLE_APP_ADJ, PERCEPTIBLE_APP_ADJ,
             BACKUP_APP_ADJ, CACHED_APP_MIN_ADJ, CACHED_APP_MAX_ADJ
+    };
+
+    // These are the low-end OOM level limits for 32bit 1 GB RAM
+    private final int[] mOomMinFreeLow32Bit = new int[] {
+            12288, 18432, 24576,
+            36864, 43008, 49152
+    };
+    // These are the high-end OOM level limits for 32bit 1 GB RAM
+    private final int[] mOomMinFreeHigh32Bit = new int[] {
+            61440, 76800, 92160,
+            107520, 137660, 174948
     };
     // These are the low-end OOM level limits.  This is appropriate for an
     // HVGA or smaller phone with less than 512MB.  Values are in KB.
@@ -240,15 +276,24 @@ final class ProcessList {
             Slog.i("XXXXXX", "minfree_adj=" + minfree_adj + " minfree_abs=" + minfree_abs);
         }
 
+        // We've now baked in the increase to the basic oom values above, since
+        // they seem to be useful more generally for devices that are tight on
+        // memory than just for 64 bit.  This should probably have some more
+        // tuning done, so not deleting it quite yet...
         final boolean is64bit = Build.SUPPORTED_64_BIT_ABIS.length > 0;
 
         for (int i=0; i<mOomAdj.length; i++) {
             int low = mOomMinFreeLow[i];
             int high = mOomMinFreeHigh[i];
             if (is64bit) {
+                Slog.i("XXXXXX", "choosing minFree values for 64 Bit");
                 // Increase the high min-free levels for cached processes for 64-bit
                 if (i == 4) high = (high*3)/2;
                 else if (i == 5) high = (high*7)/4;
+            } else {
+                Slog.i("XXXXXX", "choosing minFree values for 32 Bit");
+                low = mOomMinFreeLow32Bit[i];
+                high = mOomMinFreeHigh32Bit[i];
             }
             mOomMinFree[i] = (int)(low + ((high-low)*scale));
         }
@@ -308,7 +353,11 @@ final class ProcessList {
     }
 
     public static int computeEmptyProcessLimit(int totalProcessLimit) {
-        return totalProcessLimit/2;
+        if(USE_TRIM_SETTINGS && allowTrim()) {
+            return totalProcessLimit*EMPTY_APP_PERCENT/100;
+        } else {
+            return totalProcessLimit/2;
+        }
     }
 
     private static String buildOomTag(String prefix, String space, int val, int base) {
@@ -671,16 +720,15 @@ final class ProcessList {
     }
 
     private static void writeLmkd(ByteBuffer buf) {
-
         for (int i = 0; i < 3; i++) {
             if (sLmkdSocket == null) {
-                    if (openLmkdSocket() == false) {
-                        try {
-                            Thread.sleep(1000);
-                        } catch (InterruptedException ie) {
-                        }
-                        continue;
+                if (openLmkdSocket() == false) {
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException ie) {
                     }
+                    continue;
+                }
             }
 
             try {
@@ -697,5 +745,56 @@ final class ProcessList {
                 sLmkdSocket = null;
             }
         }
+    }
+
+    private static final int[] PROCESS_STATS_FORMAT;
+    static {
+        PROCESS_STATS_FORMAT = new int[31];
+        java.util.Arrays.fill(PROCESS_STATS_FORMAT, android.os.Process.PROC_SPACE_TERM);
+        // Process name enclosed in parentheses
+        PROCESS_STATS_FORMAT[1] |= android.os.Process.PROC_PARENS;
+        // Process state (D/R/S/T/Z)
+        PROCESS_STATS_FORMAT[2] |= android.os.Process.PROC_OUT_STRING;
+        // Bit mask of pending signals
+        PROCESS_STATS_FORMAT[30] |= android.os.Process.PROC_OUT_STRING;
+    }
+
+    static boolean isAlive(int pid, boolean noisy) {
+        final String[] procStats = new String[2];
+        final String stat = "/proc/" + pid + "/stat";
+        if (android.os.Process.readProcFile(stat, PROCESS_STATS_FORMAT,
+                procStats, null, null)) {
+            if ("Z".equals(procStats[0])) {
+                if (noisy) {
+                    Slog.i(TAG, pid + " is zombie state");
+                }
+                return false;
+            }
+            try {
+                int pendingSignals = Integer.parseInt(procStats[1]);
+                if ((pendingSignals & (1 << 8)) != 0) {
+                    if (noisy) {
+                        Slog.i(TAG, pid + " has pending signal 9");
+                    }
+                    return false;
+                }
+            } catch (NumberFormatException e) {
+                Slog.w(TAG, "Unknown pending signals " + procStats[1] + " of " + pid);
+            }
+        } else {
+            boolean exists = false;
+            try {
+                exists = libcore.io.Libcore.os.access(stat, android.system.OsConstants.F_OK);
+            } catch (android.system.ErrnoException e) {
+                exists = e.errno != android.system.OsConstants.ENOENT;
+            }
+            if (!exists) {
+                if (noisy) {
+                    Slog.i(TAG, stat + " does not exist");
+                }
+                return false;
+            }
+        }
+        return true;
     }
 }

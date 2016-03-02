@@ -58,8 +58,15 @@ public class WifiConfiguration implements Parcelable {
     public static final String pmfVarName = "ieee80211w";
     /** {@hide} */
     public static final String updateIdentiferVarName = "update_identifier";
+     /** {@hide} */
+    public static final String modeVarName = "mode";
+    /** {@hide} */
+    public static final String frequencyVarName = "frequency";
     /** {@hide} */
     public static final int INVALID_NETWORK_ID = -1;
+    /** {@hide} */
+    public static final String SIMNumVarName = "sim_num";
+
 
     /**
      * Recognized key management schemes.
@@ -302,6 +309,18 @@ public class WifiConfiguration implements Parcelable {
      */
     public String updateIdentifier;
 
+   /**
+     * This is an Ad-Hoc (IBSS) network
+     * {@hide}
+     */
+    public boolean isIBSS;
+
+    /**
+     * Frequency of the Ad-Hoc (IBSS) network, if newly created
+     * {@hide}
+     */
+    public int frequency;
+
     /**
      * The set of key management protocols supported by this configuration.
      * See {@link KeyMgmt} for descriptions of the values.
@@ -426,10 +445,23 @@ public class WifiConfiguration implements Parcelable {
     public String autoJoinBSSID;
 
     /**
+      * @hide
+      * sim number selected
+      */
+    public int SIMNum;
+
+    /**
      * @hide
      * Status of user approval for connection
      */
     public int userApproved = USER_UNSPECIFIED;
+
+    /**
+     * @hide
+     * Inactivity time before wifi tethering is disabled.  Here inactivity means no clients
+     * connected.  A value of 0 means the AP will not be disabled when there is no activity
+     */
+    public long wifiApInactivityTimeout;
 
     /** The Below RSSI thresholds are used to configure AutoJoin
      *  - GOOD/LOW/BAD thresholds are used so as to calculate link score
@@ -910,6 +942,8 @@ public class WifiConfiguration implements Parcelable {
         roamingConsortiumIds = new long[0];
         priority = 0;
         hiddenSSID = false;
+        isIBSS = false;
+        frequency = 0;
         disableReason = DISABLED_UNKNOWN_REASON;
         allowedKeyManagement = new BitSet();
         allowedProtocols = new BitSet();
@@ -929,6 +963,7 @@ public class WifiConfiguration implements Parcelable {
         mIpConfiguration = new IpConfiguration();
         lastUpdateUid = -1;
         creatorUid = -1;
+        SIMNum = 0;
     }
 
     /**
@@ -1086,6 +1121,10 @@ public class WifiConfiguration implements Parcelable {
         }
         sbuf.append('\n').append(" PSK: ");
         if (this.preSharedKey != null) {
+            sbuf.append('*');
+        }
+        sbuf.append('\n').append(" sim_num ");
+        if (this.SIMNum > 0 ) {
             sbuf.append('*');
         }
         sbuf.append("\nEnterprise config:\n");
@@ -1325,14 +1364,14 @@ public class WifiConfiguration implements Parcelable {
             key = FQDN + KeyMgmt.strings[KeyMgmt.WPA_EAP];
         } else {
             if (allowedKeyManagement.get(KeyMgmt.WPA_PSK)) {
-                key = SSID + KeyMgmt.strings[KeyMgmt.WPA_PSK];
+                key = SSID + "-" + KeyMgmt.strings[KeyMgmt.WPA_PSK];
             } else if (allowedKeyManagement.get(KeyMgmt.WPA_EAP) ||
                     allowedKeyManagement.get(KeyMgmt.IEEE8021X)) {
-                key = SSID + KeyMgmt.strings[KeyMgmt.WPA_EAP];
+                key = SSID + "-" + KeyMgmt.strings[KeyMgmt.WPA_EAP];
             } else if (wepKeys[0] != null) {
-                key = SSID + "WEP";
+                key = SSID + "-WEP";
             } else {
-                key = SSID + KeyMgmt.strings[KeyMgmt.NONE];
+                key = SSID + "-" + KeyMgmt.strings[KeyMgmt.NONE];
             }
             mCachedConfigKey = key;
         }
@@ -1354,17 +1393,16 @@ public class WifiConfiguration implements Parcelable {
 
         if (result.capabilities.contains("WEP")) {
             key = key + "-WEP";
-        }
-
-        if (result.capabilities.contains("PSK")) {
+        } else if (result.capabilities.contains("PSK")) {
             key = key + "-" + KeyMgmt.strings[KeyMgmt.WPA_PSK];
-        }
-
-        if (result.capabilities.contains("EAP")) {
+        } else if (result.capabilities.contains("EAP")||
+                   result.capabilities.contains("IEEE8021X")) {
             key = key + "-" + KeyMgmt.strings[KeyMgmt.WPA_EAP];
+        } else {
+            key = key +"-" + KeyMgmt.strings[KeyMgmt.NONE];
         }
 
-        return key;
+	return key;
     }
 
     /** @hide */
@@ -1453,6 +1491,8 @@ public class WifiConfiguration implements Parcelable {
             wepTxKeyIndex = source.wepTxKeyIndex;
             priority = source.priority;
             hiddenSSID = source.hiddenSSID;
+            isIBSS = source.isIBSS;
+            frequency = source.frequency;
             allowedKeyManagement   = (BitSet) source.allowedKeyManagement.clone();
             allowedProtocols       = (BitSet) source.allowedProtocols.clone();
             allowedAuthAlgorithms  = (BitSet) source.allowedAuthAlgorithms.clone();
@@ -1522,6 +1562,8 @@ public class WifiConfiguration implements Parcelable {
             noInternetAccessExpected = source.noInternetAccessExpected;
             creationTime = source.creationTime;
             updateTime = source.updateTime;
+            SIMNum = source.SIMNum;
+            wifiApInactivityTimeout = source.wifiApInactivityTimeout;
         }
     }
 
@@ -1554,6 +1596,8 @@ public class WifiConfiguration implements Parcelable {
         dest.writeInt(wepTxKeyIndex);
         dest.writeInt(priority);
         dest.writeInt(hiddenSSID ? 1 : 0);
+        dest.writeInt(isIBSS ? 1 : 0);
+        dest.writeInt(frequency);
         dest.writeInt(requirePMF ? 1 : 0);
         dest.writeString(updateIdentifier);
 
@@ -1601,6 +1645,8 @@ public class WifiConfiguration implements Parcelable {
         dest.writeInt(userApproved);
         dest.writeInt(numNoInternetAccessReports);
         dest.writeInt(noInternetAccessExpected ? 1 : 0);
+        dest.writeInt(SIMNum);
+        dest.writeLong(wifiApInactivityTimeout);
     }
 
     /** Implement the Parcelable interface {@hide} */
@@ -1630,6 +1676,8 @@ public class WifiConfiguration implements Parcelable {
                 config.wepTxKeyIndex = in.readInt();
                 config.priority = in.readInt();
                 config.hiddenSSID = in.readInt() != 0;
+                config.isIBSS = in.readInt() != 0;
+                config.frequency = in.readInt();
                 config.requirePMF = in.readInt() != 0;
                 config.updateIdentifier = in.readString();
 
@@ -1677,6 +1725,8 @@ public class WifiConfiguration implements Parcelable {
                 config.userApproved = in.readInt();
                 config.numNoInternetAccessReports = in.readInt();
                 config.noInternetAccessExpected = in.readInt() != 0;
+                config.SIMNum = in.readInt();
+                config.wifiApInactivityTimeout = in.readLong();
                 return config;
             }
 

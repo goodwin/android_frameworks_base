@@ -27,6 +27,7 @@ import static android.system.OsConstants.S_IXOTH;
 
 import android.app.PackageInstallObserver;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -3324,11 +3325,6 @@ public class PackageManagerTests extends AndroidTestCase {
         }
         installFromRawResource("keysetApi.apk", R.raw.keyset_splat_api,
                 0, false, false, -1, PackageInfo.INSTALL_LOCATION_UNSPECIFIED);
-        try {
-            ks = pm.getKeySetByAlias(otherPkgName, "A");
-            assertTrue(false); // should have thrown
-        } catch (SecurityException e) {
-        }
         cleanUpInstall(otherPkgName);
         ks = pm.getKeySetByAlias(mPkgName, "A");
         assertNotNull(ks);
@@ -3852,4 +3848,21 @@ public class PackageManagerTests extends AndroidTestCase {
      * how to do tests on updated system apps?
      * verify updates to system apps cannot be installed on the sdcard.
      */
+
+    //CM Tests
+    public void testIsComponentProtectedFromSamePackage() {
+        ComponentName testComponentName = new ComponentName("com.android.test",
+                "com.android.test.component.protected");
+        getPm().setComponentProtectedSetting(testComponentName, true);
+        assertFalse(getPm().isComponentProtected(testComponentName.getPackageName(),
+                testComponentName));
+    }
+
+    public void testIsComponentProtectedFromManagers() {
+        ComponentName testComponentName = new ComponentName("com.android.test",
+                "com.android.test.component.protected");
+        getPm().setComponentProtectedSetting(testComponentName, true);
+        assertFalse(getPm().isComponentProtected(testComponentName.getPackageName(),
+                testComponentName));
+    }
 }
