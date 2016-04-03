@@ -3160,6 +3160,14 @@ public final class Settings {
         public static final Validator HEARING_AID_VALIDATOR = sBooleanValidator;
 
         /**
+         * Enable built in CAF task manager
+         * @hide
+         */
+        public static final String ENABLE_TASK_MANAGER = "enable_task_manager";
+
+        /**
+
+        /**
          * CDMA only settings
          * TTY Mode
          * 0 = OFF
