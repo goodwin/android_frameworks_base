@@ -957,10 +957,24 @@ public final class ActivityStackSupervisor implements DisplayListener {
                 return ActivityManager.START_CANCELED;
             }
 
+            if (intent.getAction() != null && !isProvisioned()) {
+                switch (intent.getAction()) {
+                    case Intent.ACTION_PROCESS_TEXT:
+                    case Intent.ACTION_ASSIST:
+                    case Intent.ACTION_VOICE_ASSIST:
+                        Slog.w(TAG, "not starting assist intent while not provisioned");
+                        return ActivityManager.START_NOT_CURRENT_USER_ACTIVITY;
+                }
+            }
             try {
                 //TODO: This needs to be a flushed out API in the future.
-                if (intent.getComponent() != null && AppGlobals.getPackageManager()
-                        .isComponentProtected(callingPackage, intent.getComponent(), userId)) {
+                boolean isProtected = intent.getComponent() != null
+                        && AppGlobals.getPackageManager()
+                        .isComponentProtected(callingPackage, callingUid,
+                                intent.getComponent(), userId) &&
+                        (intent.getFlags()&Intent.FLAG_GRANT_READ_URI_PERMISSION) == 0;
+
+                if (isProtected) {
                     Message msg = mService.mHandler.obtainMessage(
                             ActivityManagerService.POST_COMPONENT_PROTECTED_MSG);
                     //Store start flags, userid
@@ -973,6 +987,7 @@ public final class ActivityStackSupervisor implements DisplayListener {
             } catch (RemoteException e) {
                 e.printStackTrace();
             }
+
             final int realCallingPid = Binder.getCallingPid();
             final int realCallingUid = Binder.getCallingUid();
             int callingPid;
@@ -1453,8 +1468,6 @@ public final class ActivityStackSupervisor implements DisplayListener {
                             Display.DEFAULT_DISPLAY : mFocusedStack.mDisplayId) :
                             (container.mActivityDisplay == null ? Display.DEFAULT_DISPLAY :
                                     container.mActivityDisplay.mDisplayId)));
-            /* Acquire perf lock during new app launch */
-            mService.launchBoost(-1, aInfo.packageName);
         }
 
         ActivityRecord sourceRecord = null;
@@ -1869,6 +1882,29 @@ public final class ActivityStackSupervisor implements DisplayListener {
         if (inTask != null && !inTask.inRecents) {
             Slog.w(TAG, "Starting activity in task not in recents: " + inTask);
             inTask = null;
+        }
+
+        try {
+            //TODO: This needs to be a flushed out API in the future.
+            boolean isProtected = intent.getComponent() != null
+                    && AppGlobals.getPackageManager()
+                    .isComponentProtected(sourceRecord == null ? "android" :
+                                    sourceRecord.launchedFromPackage, r.launchedFromUid,
+                            intent.getComponent(), r.userId) &&
+                    (intent.getFlags()&Intent.FLAG_GRANT_READ_URI_PERMISSION) == 0;
+
+            if (isProtected && r.state == INITIALIZING) {
+                Message msg = mService.mHandler.obtainMessage(
+                        ActivityManagerService.POST_COMPONENT_PROTECTED_MSG);
+                //Store start flags, userid
+                intent.setFlags(startFlags);
+                intent.putExtra("com.android.settings.PROTECTED_APPS_USER_ID", r.userId);
+                msg.obj = intent;
+                mService.mHandler.sendMessage(msg);
+                return ActivityManager.START_NOT_CURRENT_USER_ACTIVITY;
+            }
+        } catch (RemoteException e) {
+            e.printStackTrace();
         }
 
         final boolean launchSingleTop = r.launchMode == ActivityInfo.LAUNCH_SINGLE_TOP;
@@ -3916,7 +3952,9 @@ public final class ActivityStackSupervisor implements DisplayListener {
     }
 
     void showLockTaskToast() {
-        mLockTaskNotify.showToast(mLockTaskModeState);
+        if (mLockTaskNotify != null) {
+            mLockTaskNotify.showToast(mLockTaskModeState);
+        }
     }
 
     void showLockTaskEscapeMessageLocked(TaskRecord task) {
@@ -4654,5 +4692,10 @@ public final class ActivityStackSupervisor implements DisplayListener {
         }
 
         return onLeanbackOnly;
+    }
+
+    private boolean isProvisioned() {
+        return Settings.Global.getInt(mService.mContext.getContentResolver(),
+                Settings.Global.DEVICE_PROVISIONED, 0) == 1;
     }
 }

@@ -579,7 +579,13 @@ public class UsbDeviceManager {
 
             if (mConfigured && enteringAccessoryMode) {
                 // successfully entered accessory mode
-
+                if (mCurrentAccessory != null) {
+                    Slog.w(TAG, "USB accessory re-attached, detach was not announced!");
+                    if (mBootCompleted) {
+                        getCurrentSettings().accessoryDetached(mCurrentAccessory);
+                    }
+                    mCurrentAccessory = null;
+                }
                 if (mAccessoryStrings != null) {
                     mCurrentAccessory = new UsbAccessory(mAccessoryStrings);
                     Slog.d(TAG, "entering USB accessory mode: " + mCurrentAccessory);
@@ -894,6 +900,7 @@ public class UsbDeviceManager {
         private String getDefaultFunctions() {
             String func = SystemProperties.get(USB_PERSISTENT_CONFIG_PROPERTY,
                     UsbManager.USB_FUNCTION_NONE);
+            func = UsbManager.removeFunction(func, "charging");
             if (UsbManager.USB_FUNCTION_NONE.equals(func)) {
                 func = UsbManager.USB_FUNCTION_MTP;
             }
